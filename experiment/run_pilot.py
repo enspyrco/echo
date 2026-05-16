@@ -168,29 +168,66 @@ def arm_sonnet_only(task_prompt: str) -> tuple[str, int]:
     return out, 1
 
 
-def arm_echo(task_prompt: str) -> tuple[str, int]:
-    """Echo: two Haiku calls with different personas, in parallel.
-    If outputs agree (lexically), return Haiku's answer.
-    If they disagree, escalate to a single Sonnet call.
+def _haiku_pair(task_prompt: str) -> dict[str, str]:
+    """Two parallel Haiku calls, one per persona. Returns {a: str, b: str}.
+
+    Shared by all Echo variants. RunnableParallel runs both Haiku calls
+    concurrently in worker threads — two parallel Haiku calls cost less
+    than one Sonnet call, AND they finish in ~max(a, b) wall time, not
+    a + b. That's the cost-economic point of Echo.
     """
     haiku = ChatClaudeCode(model="haiku")
-    sonnet = ChatClaudeCode(model="sonnet")
-
-    # RunnableParallel runs both Haiku calls concurrently in worker threads.
-    # This is the cost-economic point: two parallel Haiku calls cost less
-    # than one Sonnet call, AND they finish in ~max(a, b) wall time, not a + b.
     parallel = RunnableParallel(
         a=RunnableLambda(lambda p: call_with_persona(haiku, PERSONA_A, p)),
         b=RunnableLambda(lambda p: call_with_persona(haiku, PERSONA_B, p)),
     )
-    pair = parallel.invoke(task_prompt)
+    return parallel.invoke(task_prompt)
 
+
+def arm_echo_lexical(task_prompt: str) -> tuple[str, int]:
+    """Echo v1 — agreement signal is whitespace-tolerant string match.
+
+    Too strict for code-gen: two correct implementations almost always
+    differ in naming/whitespace and trip the escalation. Kept here as
+    the baseline 'naive' signal we compare smarter signals against.
+    """
+    pair = _haiku_pair(task_prompt)
     if normalize_for_comparison(pair["a"]) == normalize_for_comparison(pair["b"]):
-        return pair["a"], 2  # agree → keep Haiku output
+        return pair["a"], 2
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task_prompt), 3
 
-    # Disagreement → escalate to Sonnet
-    sonnet_out = call_with_persona(sonnet, PERSONA_A, task_prompt)
-    return sonnet_out, 3
+
+def arm_echo_oracle(task_prompt: str) -> tuple[str, int]:
+    """Echo with an ORACLE agreement signal — uses ground-truth test pass/fail.
+
+    NOTE: This is not a production-deployable router. A live router can't
+    consult ground-truth tests at routing time — if it could, you wouldn't
+    need a router in the first place. This arm exists to characterize the
+    UPPER BOUND of what any agreement signal could achieve on this
+    benchmark: it's the cost-quality frontier Echo would lie on if its
+    agreement signal were perfect. Real signals (AST diff, judge model,
+    embedding similarity) get added as separate arms and measured against
+    this upper bound.
+
+    Decision logic:
+      both pass → accept either (cost: 2 Haiku calls)
+      exactly one passes → accept the passing one (cost: 2 Haiku calls)
+      both fail → escalate to Sonnet (cost: 2 Haiku + 1 Sonnet)
+    """
+    pair = _haiku_pair(task_prompt)
+    a_passed, _ = run_tests(pair["a"], HUMANEVAL_PROMPT, HUMANEVAL_TESTS, ENTRY_POINT)
+    b_passed, _ = run_tests(pair["b"], HUMANEVAL_PROMPT, HUMANEVAL_TESTS, ENTRY_POINT)
+
+    if a_passed and b_passed:
+        return pair["a"], 2  # both correct — keep either
+    if a_passed:
+        return pair["a"], 2  # one correct — keep it
+    if b_passed:
+        return pair["b"], 2
+    # Both failed — Sonnet is our remaining hope.
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task_prompt), 3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -200,7 +237,8 @@ def arm_echo(task_prompt: str) -> tuple[str, int]:
 ARMS: dict[str, Callable[[str], tuple[str, int]]] = {
     "haiku-only": arm_haiku_only,
     "sonnet-only": arm_sonnet_only,
-    "echo": arm_echo,
+    "echo-lexical": arm_echo_lexical,
+    "echo-oracle": arm_echo_oracle,
 }
 
 
