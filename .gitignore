@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local experiment artefacts
+experiment/results/
+experiment/.cache/
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
