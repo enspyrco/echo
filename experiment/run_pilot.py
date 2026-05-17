@@ -75,18 +75,42 @@ def normalize_for_comparison(code: str) -> str:
     return "\n".join(lines)
 
 
+TEST_TIMEOUT_SECONDS = 10  # match HumanEval's official evaluator default
+
+
 def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
-    """Splice the model's body into the canonical signature and run the test suite."""
+    """Run model-generated code against the canonical test suite, with hard timeout.
+
+    Why a subprocess: model-generated code WILL sometimes contain infinite loops
+    or pathologically slow algorithms (HumanEval/32 'find_zero' is a known
+    offender). Bare ``exec()`` in this process hangs the entire sweep.
+    Subprocess gives us a kill signal that actually works.
+
+    This mirrors HumanEval's official evaluator pattern (10s timeout, kill on
+    expiry, treat as failure with reason "timeout").
+    """
+    import subprocess as _sp
+
     body = strip_code_fences(implementation)
     full = task["prompt"] + "\n" + body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
-    ns: dict = {}
+
     try:
-        exec(full, ns)  # noqa: S102 — pilot harness, trusted local code
+        result = _sp.run(
+            ["python3", "-c", full],
+            capture_output=True,
+            text=True,
+            timeout=TEST_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except _sp.TimeoutExpired:
+        return False, f"timeout (>{TEST_TIMEOUT_SECONDS}s)"
+
+    if result.returncode == 0:
         return True, "passed"
-    except AssertionError as e:
-        return False, f"assertion: {str(e)[:120]}"
-    except Exception as e:
-        return False, f"{type(e).__name__}: {str(e)[:120]}"
+    # Truncate stderr — model traces can be long, we just want the type/message
+    err = (result.stderr or "").strip().splitlines()
+    last = err[-1] if err else "<no stderr>"
+    return False, last[:160]
 
 
 def call_with_persona(model: ChatClaudeCode, persona: str, task_prompt: str) -> str:
