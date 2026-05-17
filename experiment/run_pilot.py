@@ -62,9 +62,20 @@ PERSONA_B = textwrap.dedent("""\
 # ─────────────────────────────────────────────────────────────────────────────
 
 def strip_code_fences(text: str) -> str:
-    """Models sometimes wrap output in ```python fences despite instructions."""
+    """Strip ```python triple-fences AND single-backtick `inline` spans.
+
+    Sonnet sometimes returns short answers as `"".join(strings)` (single
+    backticks). Haiku usually wraps in triple fences. Both need to come out
+    cleanly or the downstream assembler produces invalid Python.
+    """
     fence = re.search(r"```(?:python)?\n(.*?)```", text, re.DOTALL)
-    return fence.group(1).strip() if fence else text.strip()
+    if fence:
+        return fence.group(1).strip()
+    text = text.strip()
+    inline = re.match(r"^`([^`\n]+)`$", text)
+    if inline:
+        return inline.group(1).strip()
+    return text
 
 
 def normalize_for_comparison(code: str) -> str:
@@ -92,7 +103,24 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
     import subprocess as _sp
 
     body = strip_code_fences(implementation)
-    full = task["prompt"] + "\n" + body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+
+    # Models return three shapes:
+    #   (a) full function: starts with "def " — use directly, ignore the prompt's stub
+    #   (b) body-only return: starts with "return " — indent into the prompt's stub
+    #   (c) bare expression: anything else — wrap as `return <expr>` and indent into stub
+    # Naive concatenation (prompt + body) only works for shape (b) if the body is
+    # already indented, which models do inconsistently. Routing explicitly handles all 3.
+    stripped = body.lstrip()
+    if stripped.startswith("def "):
+        program = body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+    elif stripped.startswith("return "):
+        indented = "\n".join("    " + ln for ln in body.splitlines())
+        program = task["prompt"] + indented + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+    else:
+        # Bare expression — wrap as return statement, then indent into the stub.
+        indented = "    return " + body.replace("\n", "\n    ")
+        program = task["prompt"] + indented + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+    full = program
 
     try:
         result = _sp.run(

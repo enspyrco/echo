@@ -7,8 +7,8 @@ __pycache__/
 .venv/
 venv/
 
-# Local experiment artefacts
-experiment/results/
+# Experiment artefacts: KEEP results JSONL in git — they're the source of
+# truth for paper plots. Only cache and venv are excluded.
 experiment/.cache/
 
 # OS
