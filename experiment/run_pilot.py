@@ -70,8 +70,12 @@ def strip_code_fences(text: str) -> str:
     """
     fence = re.search(r"```(?:python)?\n(.*?)```", text, re.DOTALL)
     if fence:
-        return fence.group(1).strip()
-    text = text.strip()
+        return textwrap.dedent(fence.group(1)).strip()
+    # textwrap.dedent BEFORE strip — bare `.strip()` only removes leading
+    # whitespace from the whole string, so a 4-space-indented multi-line body
+    # ends up dedented on line 1 only, leaving lines 2+ wrongly indented.
+    # dedent removes the common leading whitespace across all lines first.
+    text = textwrap.dedent(text).strip()
     inline = re.match(r"^`([^`\n]+)`$", text)
     if inline:
         return inline.group(1).strip()
@@ -110,15 +114,24 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
     #   (c) bare expression: anything else — wrap as `return <expr>` and indent into stub
     # Naive concatenation (prompt + body) only works for shape (b) if the body is
     # already indented, which models do inconsistently. Routing explicitly handles all 3.
-    stripped = body.lstrip()
-    if stripped.startswith("def "):
+    # The single load-bearing question: does the model's body contain a
+    # top-level `def`? If yes, it's a complete implementation file (possibly
+    # with leading imports — Sonnet's pattern for HumanEval/133, /162).
+    # If no, it's a function body that needs to be indented into the prompt's
+    # stub (Haiku's pattern when it omits the signature — /139, /140, etc).
+    has_top_level_def = bool(re.search(r"^def\s", body, re.MULTILINE))
+
+    if has_top_level_def:
         program = body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
-    elif stripped.startswith("return "):
-        indented = "\n".join("    " + ln for ln in body.splitlines())
-        program = task["prompt"] + indented + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
     else:
-        # Bare expression — wrap as return statement, then indent into the stub.
-        indented = "    return " + body.replace("\n", "\n    ")
+        # Body is a function-body fragment. Two sub-cases via ast.parse:
+        #   - bare expression (e.g. `[x+1 for x in l]`): wrap as `return <expr>`
+        #   - multi-statement body (may already contain its own `return`): indent each line
+        try:
+            ast.parse(body, mode="eval")
+            indented = "    return " + body.replace("\n", "\n    ")
+        except SyntaxError:
+            indented = "\n".join("    " + ln for ln in body.splitlines())
         program = task["prompt"] + indented + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
     full = program
 
