@@ -27,11 +27,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from chat_claude_code import ChatClaudeCode
 from dataset import load_humaneval
+
+# Optional small-model judge backend (Ollama). Import lazily so the module
+# loads even when langchain-ollama isn't installed — the small-judge arm
+# just won't be usable in that case.
+try:
+    from langchain_ollama import ChatOllama
+    _HAS_OLLAMA = True
+except ImportError:
+    _HAS_OLLAMA = False
 
 RESULTS_DIR = Path(__file__).parent / "results"
 
@@ -212,18 +222,24 @@ def ast_agree(a: str, b: str) -> bool:
         return False
 
 
-def judge_agree(a: str, b: str, task: dict) -> bool:
-    """Ask a third cheap model (Haiku) whether two solutions are equivalent.
+def judge_agree(a: str, b: str, task: dict, judge: BaseChatModel | None = None) -> bool:
+    """Ask a third model whether two candidate solutions are equivalent.
 
-    Cost: one extra Haiku call per task on top of the parallel pair. Only
-    pays off if it prevents Sonnet escalations >~33% of the time (the
-    cost ratio of judge-call to escalation-saved).
+    Parameterised on the judge model so we can compare different judge
+    backends (Haiku via Claude Code, small local model via Ollama, etc).
+    Defaults to Haiku via ChatClaudeCode for the baseline arm.
 
-    The judge call is purely YES/NO — we keep the prompt minimal to make
-    the answer space deterministic. Anything other than 'YES' counts as
-    disagree (defensive default; ambiguous responses → escalate).
+    Cost: one extra call per task on top of the Haiku pair. For a Haiku
+    judge this is ~1 cheap unit; for a tiny local model (Qwen 0.5B) it's
+    effectively free. The arm wins if it prevents Sonnet escalations more
+    often than the judge call costs.
+
+    The judge call is purely YES/NO — minimal prompt for deterministic
+    parsing. Anything not starting with YES counts as disagree (defensive
+    default: ambiguous responses escalate to Sonnet).
     """
-    judge = ChatClaudeCode(model="haiku")
+    if judge is None:
+        judge = ChatClaudeCode(model="haiku")
     resp = judge.invoke([
         SystemMessage(content=(
             "You compare two candidate Python implementations of a problem. "
@@ -255,7 +271,7 @@ def arm_echo_ast(task: dict) -> tuple[str, int]:
 
 
 def arm_echo_judge(task: dict) -> tuple[str, int]:
-    """Echo with judge-model agreement signal.
+    """Echo with Haiku-judge agreement signal.
 
     Three cheap calls (2 Haiku pair + 1 Haiku judge) instead of 2, but
     the judge call evaluates *semantic* equivalence — it can recognize
@@ -267,6 +283,45 @@ def arm_echo_judge(task: dict) -> tuple[str, int]:
         return pair["a"], 3  # 2 pair + 1 judge, no escalation
     sonnet = ChatClaudeCode(model="sonnet")
     return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 4
+
+
+# Small-model judge config. Qwen 2.5 7B-instruct Q4 via local Ollama —
+# ~4.7GB, ~10-15s CPU inference per call on ARM Ampere (much faster on
+# Mac Metal). The bet: instruct-tuned 7B has enough reasoning to judge
+# code equivalence correctly while staying cheap enough that the extra
+# call doesn't eat the cost-savings from skipping Sonnet escalation.
+#
+# Empirical results from earlier smoke test:
+#   qwen2.5:0.5b — sub-second but anti-signal (wrong answers, basically random)
+#   qwen3-coder:30b — accurate but 3m40s per call on ARM CPU (untenable)
+#   qwen2.5:7b-instruct — middle ground we're now testing
+SMALL_JUDGE_MODEL = "qwen2.5:7b-instruct-q4_K_M"
+SMALL_JUDGE_BASE_URL = "http://localhost:11434"
+
+
+def arm_echo_small_judge(task: dict) -> tuple[str, int]:
+    """Echo with tiny-local-model judge (Qwen 2.5 0.5b via Ollama).
+
+    Same logic as arm_echo_judge but the third call goes to a sub-second
+    local model instead of a Haiku API call. If the small model maintains
+    ~75%+ of Haiku-judge's oracle alignment, the cost ratio is dramatic:
+    ~2 cheap calls + 0 (free local) + epsilon escalations, vs the Haiku
+    judge's 3 cheap calls.
+
+    Requires Ollama running locally with the SMALL_JUDGE_MODEL pulled.
+    Raises a clear error if langchain-ollama isn't installed.
+    """
+    if not _HAS_OLLAMA:
+        raise RuntimeError(
+            "echo-small-judge requires langchain-ollama. "
+            "Run: uv pip install langchain-ollama && ollama pull qwen2.5:0.5b"
+        )
+    pair = _haiku_pair(task["prompt"])
+    small_judge = ChatOllama(model=SMALL_JUDGE_MODEL, base_url=SMALL_JUDGE_BASE_URL)
+    if judge_agree(pair["a"], pair["b"], task, judge=small_judge):
+        return pair["a"], 2  # local model call doesn't count as cheap-tier spend
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 3
 
 
 def arm_echo_oracle(task: dict) -> tuple[str, int]:
@@ -296,6 +351,7 @@ ARMS: dict[str, Callable[[dict], tuple[str, int]]] = {
     "echo-lexical": arm_echo_lexical,
     "echo-ast": arm_echo_ast,
     "echo-judge": arm_echo_judge,
+    "echo-small-judge": arm_echo_small_judge,
     "echo-oracle": arm_echo_oracle,
 }
 
