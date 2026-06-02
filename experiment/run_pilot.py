@@ -132,7 +132,12 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
     has_top_level_def = bool(re.search(r"^def\s", body, re.MULTILINE))
 
     if has_top_level_def:
-        program = body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+        prompt_imports = "\n".join(
+            ln for ln in task["prompt"].splitlines()
+            if ln.startswith("from ") or ln.startswith("import ")
+        )
+        preamble = prompt_imports + "\n" if prompt_imports else ""
+        program = preamble + body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
     else:
         # Body is a function-body fragment. Two sub-cases via ast.parse:
         #   - bare expression (e.g. `[x+1 for x in l]`): wrap as `return <expr>`
