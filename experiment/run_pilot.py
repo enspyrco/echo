@@ -414,10 +414,12 @@ def summarize(results: list[TaskResult]) -> dict:
     for arm, rs in by_arm.items():
         n = len(rs)
         passed = sum(1 for r in rs if r.passed)
-        # "Escalation rate" for Echo arms: fraction of tasks that used >2 calls
-        # (oracle and lexical both escalate when sub_calls jumps from 2 to 3).
-        # For non-Echo arms this is just an extra metric that happens to be 0%.
-        escalated = sum(1 for r in rs if r.sub_calls > 2)
+        # Escalation = Sonnet was called. Threshold depends on arm:
+        #   lexical/ast/oracle/small-judge: accept=2, escalate=3 → threshold >2
+        #   judge/judge-openai: accept=3 (pair+judge), escalate=4 → threshold >3
+        judge_arms = {"echo-judge", "echo-judge-openai"}
+        threshold = 3 if arm in judge_arms else 2
+        escalated = sum(1 for r in rs if r.sub_calls > threshold)
         summary[arm] = {
             "n": n,
             "pass_rate": round(passed / n, 3) if n else None,
