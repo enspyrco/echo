@@ -324,6 +324,28 @@ def arm_echo_small_judge(task: dict) -> tuple[str, int]:
     return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 3
 
 
+def arm_echo_judge_openai(task: dict) -> tuple[str, int]:
+    """Echo with cross-family judge (GPT-4o-mini via OpenAI API).
+
+    Same structure as echo-judge but the agreement call goes to OpenAI
+    instead of Haiku, removing same-family bias from the signal.
+    Requires OPENAI_API_KEY in the environment.
+    """
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:
+        raise RuntimeError(
+            "echo-judge-openai requires langchain-openai. "
+            "Run: pip install langchain-openai"
+        ) from exc
+    pair = _haiku_pair(task["prompt"])
+    openai_judge = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    if judge_agree(pair["a"], pair["b"], task, judge=openai_judge):
+        return pair["a"], 3
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 4
+
+
 def arm_echo_oracle(task: dict) -> tuple[str, int]:
     """Oracle agreement signal: ground-truth test pass/fail.
 
@@ -352,6 +374,7 @@ ARMS: dict[str, Callable[[dict], tuple[str, int]]] = {
     "echo-ast": arm_echo_ast,
     "echo-judge": arm_echo_judge,
     "echo-small-judge": arm_echo_small_judge,
+    "echo-judge-openai": arm_echo_judge_openai,
     "echo-oracle": arm_echo_oracle,
 }
 
