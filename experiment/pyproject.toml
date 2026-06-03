@@ -9,4 +9,5 @@ dependencies = [
   "langchain-ollama>=0.2,<0.4",
   "datasets>=2.14",
   "langchain-openai>=0.3",
+  "langchain-google-genai>=2.0",
 ]
