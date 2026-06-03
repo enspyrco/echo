@@ -10,7 +10,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
-from benchmarks.bbh import extract_choice, score_bbh
+from benchmarks.bbh import extract_answer, score_bbh
 from chat_claude_code import ChatClaudeCode
 from run_pilot import SMALL_JUDGE_BASE_URL, SMALL_JUDGE_MODEL, _HAS_OLLAMA
 
@@ -55,8 +55,13 @@ def _normalize_answer_text(text: str) -> str:
 
 
 def lexical_agree(a: str, b: str) -> bool:
-    """Same final choice letter, or identical normalized text."""
-    ca, cb = extract_choice(a), extract_choice(b)
+    """Same final answer (letter OR Yes/No), or identical normalized text.
+
+    Uses the unified extract_answer so Yes/No-shaped subtasks
+    (causal_judgement, web_of_lies, navigate, sports_understanding) get the
+    same letter-equality fast path as MCQ subtasks.
+    """
+    ca, cb = extract_answer(a), extract_answer(b)
     if ca is not None and cb is not None:
         return ca == cb
     return _normalize_answer_text(a) == _normalize_answer_text(b)
