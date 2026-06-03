@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.bbh import extract_choice, format_prompt, normalize_gold, score_bbh
+from benchmarks.bbh import _row_to_task
 
 
 class TestExtractChoice(unittest.TestCase):
@@ -33,6 +34,21 @@ class TestExtractChoice(unittest.TestCase):
             "D",
         )
 
+    def test_final_answer_sentence_beats_reasoning_option_mentions(self) -> None:
+        self.assertEqual(
+            extract_choice("I considered (A) and then (B). Therefore the answer is C."),
+            "C",
+        )
+
+    def test_correct_answer_sentence_beats_reasoning_option_mentions(self) -> None:
+        self.assertEqual(
+            extract_choice("Option (A) is tempting, but the correct answer is (C)."),
+            "C",
+        )
+
+    def test_reasoning_option_mentions_alone_are_not_parseable(self) -> None:
+        self.assertIsNone(extract_choice("I considered (A), then (B), then (C)."))
+
 
 class TestScoreBbh(unittest.TestCase):
     def _task(self, gold: str = "C") -> dict:
@@ -56,6 +72,26 @@ class TestScoreBbh(unittest.TestCase):
         ok, detail = score_bbh("maybe yes", self._task())
         self.assertFalse(ok)
         self.assertEqual(detail, "unparseable")
+
+    def test_binary_answer_text_scores_against_synthetic_choices(self) -> None:
+        task = _row_to_task(
+            "causal_judgement",
+            0,
+            {"question": "Did X cause Y?", "target": "No"},
+        )
+        ok, detail = score_bbh("Reasoning...\nAnswer: No", task)
+        self.assertTrue(ok)
+        self.assertEqual(detail, "passed")
+
+    def test_binary_answer_letter_scores_against_synthetic_choices(self) -> None:
+        task = _row_to_task(
+            "causal_judgement",
+            0,
+            {"question": "Did X cause Y?", "target": "No"},
+        )
+        ok, detail = score_bbh("Answer: B", task)
+        self.assertTrue(ok)
+        self.assertEqual(detail, "passed")
 
 
 class TestFormatPrompt(unittest.TestCase):

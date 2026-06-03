@@ -50,6 +50,27 @@ ALL_SUBTASKS = [
 ]
 
 _CHOICE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+BINARY_CHOICE_TEXTS = {
+    "yes": ("Yes", "No"),
+    "no": ("Yes", "No"),
+    "true": ("True", "False"),
+    "false": ("True", "False"),
+}
+
+
+def _clean_label(label: str) -> str:
+    return str(label).strip().strip("()").upper()
+
+
+def _clean_answer_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text).strip().lower())
+
+
+def _synthetic_binary_choices(target: str) -> dict[str, list[str]] | None:
+    texts = BINARY_CHOICE_TEXTS.get(_clean_answer_text(target))
+    if texts is None:
+        return None
+    return {"label": ["A", "B"], "text": list(texts)}
 
 
 def _format_choices(choices: dict[str, Any]) -> str:
@@ -88,6 +109,26 @@ def normalize_gold(target: str) -> str:
     return letter
 
 
+def normalize_gold_for_choices(target: str, choices: dict[str, Any]) -> str:
+    """Normalize a gold target against a concrete choice list.
+
+    Some BBH configs have letter targets ("C"); binary configs can have text
+    targets ("Yes"/"No"). Convert either form to the matching choice label.
+    """
+    labels = [_clean_label(label) for label in choices.get("label") or []]
+    texts = [_clean_answer_text(text) for text in choices.get("text") or []]
+    target_text = _clean_answer_text(target)
+
+    if target_text in texts:
+        return labels[texts.index(target_text)]
+
+    letter = extract_choice(str(target))
+    if letter is not None and letter in labels:
+        return letter
+
+    raise ValueError(f"Could not parse gold target: {target!r}")
+
+
 def extract_choice(text: str) -> str | None:
     """Parse a multiple-choice letter from model output.
 
@@ -97,19 +138,21 @@ def extract_choice(text: str) -> str | None:
     if not text or not text.strip():
         return None
 
+    tail = "\n".join(text.strip().splitlines()[-5:])
     patterns = [
         r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?\s*\.?\s*$",
         r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?",
+        r"(?i)\b(?:final\s+answer|answer|correct\s+answer|correct\s+choice)\s*(?:is|:)\s*\(?\s*([A-Z])\s*\)?",
+        r"(?i)\b(?:option|choice)\s+\(?\s*([A-Z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+\(?\s*([A-Z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+(?:the\s+)?(?:answer|correct\s+answer|choice)\s+is\s+\(?\s*([A-Z])\s*\)?",
         r"(?im)^\s*\(?\s*([A-Z])\s*\)\s*$",
-        r"(?im)correct\s+(?:answer\s+is|choice\s+is)\s*\(?\s*([A-Z])\s*\)?",
-        r"\(\s*([A-Z])\s*\)",
     ]
     for pat in patterns:
-        matches = re.findall(pat, text)
+        matches = re.findall(pat, tail)
         if matches:
             return matches[-1].upper()
 
-    tail = "\n".join(text.strip().splitlines()[-5:])
     for pat in (
         r"(?i)\b(?:option|choice|answer)\s+is\s+\(?\s*([A-Z])\s*\)?",
         r"(?i)\b([A-Z])\s*\.?\s*$",
@@ -123,6 +166,9 @@ def extract_choice(text: str) -> str | None:
 def score_bbh(model_output: str, task: dict) -> tuple[bool, str]:
     """Grade a BBH response against task['gold']."""
     pred = extract_choice(model_output)
+    valid_labels = set(task.get("choice_labels") or _CHOICE_LETTERS)
+    if pred not in valid_labels:
+        pred = extract_choice_text(model_output, task)
     if pred is None:
         return False, "unparseable"
     gold = task["gold"]
@@ -131,17 +177,46 @@ def score_bbh(model_output: str, task: dict) -> tuple[bool, str]:
     return False, f"expected {gold} got {pred}"
 
 
+def extract_choice_text(text: str, task: dict) -> str | None:
+    """Map answer text like 'Answer: No' to its choice label for binary tasks."""
+    choices = task.get("choices") or {}
+    labels = [_clean_label(label) for label in choices.get("label") or []]
+    texts = [_clean_answer_text(choice_text) for choice_text in choices.get("text") or []]
+    if not labels or not texts:
+        return None
+
+    tail = "\n".join(str(text).strip().splitlines()[-5:])
+    patterns = [
+        r"(?im)^\s*answer\s*:\s*(.+?)\s*\.?\s*$",
+        r"(?i)\b(?:final\s+answer|answer|correct\s+answer)\s*(?:is|:)\s*(.+?)(?:\.|\n|$)",
+    ]
+    for pat in patterns:
+        matches = re.findall(pat, tail)
+        for match in reversed(matches):
+            answer = _clean_answer_text(str(match).strip().strip("()"))
+            if answer in texts:
+                return labels[texts.index(answer)]
+    return None
+
+
 def _row_to_task(subtask: str, index: int, row: dict) -> dict:
-    gold = normalize_gold(row["target"])
+    choices = row.get("choices") or _synthetic_binary_choices(row["target"])
+    if choices is None:
+        raise ValueError(
+            f"BBH subtask {subtask!r} is not multiple-choice or binary; "
+            "this harness only supports choice-label scoring."
+        )
+    gold = normalize_gold_for_choices(row["target"], choices)
     return {
         "task_id": f"bbh/{subtask}/{index}",
-        "prompt": format_prompt(row["question"], row["choices"]),
+        "prompt": format_prompt(row["question"], choices),
         "gold": gold,
+        "choice_labels": [_clean_label(label) for label in choices.get("label") or []],
         "benchmark": "bbh",
         "subtask": subtask,
         # Echo arms use task["prompt"]; keep raw fields for debugging.
         "question": row["question"],
-        "choices": row["choices"],
+        "choices": choices,
     }
 
 
