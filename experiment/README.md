@@ -17,6 +17,11 @@ For sweep narratives and headline numbers, see [`results/README.md`](results/REA
 - [Ollama](https://ollama.com/) at `http://localhost:11434`
 - Model: `qwen2.5:7b-instruct-q4_K_M` (see `SMALL_JUDGE_MODEL` in `run_pilot.py`)
 
+**Optional** — only for `echo-judge-openai`:
+
+- `OPENAI_API_KEY` in the environment
+- OpenAI judge model: `gpt-5.5` (see `OPENAI_JUDGE_MODEL` in `run_pilot.py`)
+
 ```bash
 claude --version          # must work before running sweeps
 ollama pull qwen2.5:7b-instruct-q4_K_M   # only if using echo-small-judge
@@ -29,7 +34,7 @@ cd experiment
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4"
+pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4" "langchain-openai>=0.3"
 ```
 
 ## Quick start (1 task)
@@ -52,7 +57,7 @@ Tasks **100–163** (64 tasks), same range the team used for main results:
 python run_pilot.py --start 100 --n-tasks 64
 ```
 
-Default runs **all 7 arms** → 448 model calls. Expect long runtime and Claude CLI usage. Confirm the 1-task run first.
+Default runs **all 8 arms** → 512 arm runs. Expect long runtime and Claude CLI usage. Confirm the 1-task run first.
 
 Subset of arms:
 
@@ -78,6 +83,7 @@ python run_pilot.py --start 100 --n-tasks 5 --arms haiku-only,sonnet-only,echo-s
 | `echo-ast` | Two Haiku personas; escalate if AST structure differs |
 | `echo-judge` | Two Haiku personas; Haiku judges equivalence |
 | `echo-small-judge` | Two Haiku personas; local Qwen 7B judge (Ollama) |
+| `echo-judge-openai` | Two Haiku personas; GPT-5.5 judges equivalence via OpenAI |
 | `echo-oracle` | Two Haiku personas; escalate only if both fail tests (upper bound, not deployable) |
 
 ## Output format

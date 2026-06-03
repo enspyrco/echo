@@ -20,8 +20,10 @@ import argparse
 import ast
 import json
 import re
+import sys
 import textwrap
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -152,7 +154,7 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
 
     try:
         result = _sp.run(
-            ["python3", "-c", full],
+            [sys.executable, "-c", full],
             capture_output=True,
             text=True,
             timeout=TEST_TIMEOUT_SECONDS,
@@ -302,6 +304,7 @@ def arm_echo_judge(task: dict) -> tuple[str, int]:
 #   qwen2.5:7b-instruct — middle ground we're now testing
 SMALL_JUDGE_MODEL = "qwen2.5:7b-instruct-q4_K_M"
 SMALL_JUDGE_BASE_URL = "http://localhost:11434"
+OPENAI_JUDGE_MODEL = "gpt-5.5"
 
 
 def arm_echo_small_judge(task: dict) -> tuple[str, int]:
@@ -330,7 +333,7 @@ def arm_echo_small_judge(task: dict) -> tuple[str, int]:
 
 
 def arm_echo_judge_openai(task: dict) -> tuple[str, int]:
-    """Echo with cross-family judge (GPT-4o-mini via OpenAI API).
+    """Echo with cross-family judge (GPT-5.5 via OpenAI API).
 
     Same structure as echo-judge but the agreement call goes to OpenAI
     instead of Haiku, removing same-family bias from the signal.
@@ -344,7 +347,7 @@ def arm_echo_judge_openai(task: dict) -> tuple[str, int]:
             "Run: pip install langchain-openai"
         ) from exc
     pair = _haiku_pair(task["prompt"])
-    openai_judge = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    openai_judge = ChatOpenAI(model=OPENAI_JUDGE_MODEL, temperature=0)
     if judge_agree(pair["a"], pair["b"], task, judge=openai_judge):
         return pair["a"], 3
     sonnet = ChatClaudeCode(model="sonnet")
@@ -402,11 +405,17 @@ def run_one(task: dict, arm_name: str, arm_fn: Callable[[dict], tuple[str, int]]
     t0 = time.perf_counter()
     try:
         output, sub_calls = arm_fn(task)
-        passed, detail = run_tests(output, task)
     except Exception as e:
         return TaskResult(
             task["task_id"], arm_name, False, f"{type(e).__name__}: {str(e)[:200]}",
             time.perf_counter() - t0, 0,
+        )
+    try:
+        passed, detail = run_tests(output, task)
+    except Exception as e:
+        return TaskResult(
+            task["task_id"], arm_name, False, f"test runner {type(e).__name__}: {str(e)[:200]}",
+            time.perf_counter() - t0, sub_calls,
         )
     return TaskResult(task["task_id"], arm_name, passed, detail, time.perf_counter() - t0, sub_calls)
 
@@ -419,6 +428,7 @@ def summarize(results: list[TaskResult]) -> dict:
     for arm, rs in by_arm.items():
         n = len(rs)
         passed = sum(1 for r in rs if r.passed)
+        failure_details = Counter(r.detail for r in rs if not r.passed)
         # Escalation = Sonnet was called. Threshold depends on arm:
         #   lexical/ast/oracle/small-judge: accept=2, escalate=3 → threshold >2
         #   judge/judge-openai: accept=3 (pair+judge), escalate=4 → threshold >3
@@ -432,6 +442,8 @@ def summarize(results: list[TaskResult]) -> dict:
             "mean_wall_seconds": round(sum(r.wall_seconds for r in rs) / n, 2) if n else None,
             "total_sub_calls": sum(r.sub_calls for r in rs),
             "mean_sub_calls": round(sum(r.sub_calls for r in rs) / n, 2) if n else None,
+            "failures": n - passed,
+            "top_failure_details": dict(failure_details.most_common(5)),
         }
     return summary
 
