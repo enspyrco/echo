@@ -20,8 +20,10 @@ import argparse
 import ast
 import json
 import re
+import sys
 import textwrap
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,7 +134,12 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
     has_top_level_def = bool(re.search(r"^def\s", body, re.MULTILINE))
 
     if has_top_level_def:
-        program = body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
+        prompt_imports = "\n".join(
+            ln for ln in task["prompt"].splitlines()
+            if ln.startswith("from ") or ln.startswith("import ")
+        )
+        preamble = prompt_imports + "\n" if prompt_imports else ""
+        program = preamble + body + "\n" + task["test"] + f"\ncheck({task['entry_point']})\n"
     else:
         # Body is a function-body fragment. Two sub-cases via ast.parse:
         #   - bare expression (e.g. `[x+1 for x in l]`): wrap as `return <expr>`
@@ -147,7 +154,7 @@ def run_tests(implementation: str, task: dict) -> tuple[bool, str]:
 
     try:
         result = _sp.run(
-            ["python3", "-c", full],
+            [sys.executable, "-c", full],
             capture_output=True,
             text=True,
             timeout=TEST_TIMEOUT_SECONDS,
@@ -297,6 +304,17 @@ def arm_echo_judge(task: dict) -> tuple[str, int]:
 #   qwen2.5:7b-instruct — middle ground we're now testing
 SMALL_JUDGE_MODEL = "qwen2.5:7b-instruct-q4_K_M"
 SMALL_JUDGE_BASE_URL = "http://localhost:11434"
+OPENAI_JUDGE_MODELS = {
+    "gpt-5.5": "gpt-5.5",
+    "gpt-5.4": "gpt-5.4",
+    "gpt-5.4-mini": "gpt-5.4-mini",
+    "gpt-5.4-nano": "gpt-5.4-nano",
+}
+GEMINI_JUDGE_MODELS = {
+    "gemini-2.5-pro": "gemini-2.5-pro",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+}
 
 
 def arm_echo_small_judge(task: dict) -> tuple[str, int]:
@@ -322,6 +340,74 @@ def arm_echo_small_judge(task: dict) -> tuple[str, int]:
         return pair["a"], 2  # local model call doesn't count as cheap-tier spend
     sonnet = ChatClaudeCode(model="sonnet")
     return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 3
+
+
+def arm_echo_judge_openai_model(task: dict, model_name: str) -> tuple[str, int]:
+    """Echo with a cross-family OpenAI judge model.
+
+    Same structure as echo-judge but the agreement call goes to OpenAI
+    instead of Haiku, removing same-family bias from the signal.
+    Requires OPENAI_API_KEY in the environment.
+    """
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:
+        raise RuntimeError(
+            "echo-judge-openai requires langchain-openai. "
+            "Run: pip install langchain-openai"
+        ) from exc
+    pair = _haiku_pair(task["prompt"])
+    openai_judge = ChatOpenAI(model=model_name, temperature=0)
+    if judge_agree(pair["a"], pair["b"], task, judge=openai_judge):
+        return pair["a"], 3
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 4
+
+
+def arm_echo_judge_openai(task: dict) -> tuple[str, int]:
+    """Default OpenAI judge arm, currently GPT-5.5."""
+    return arm_echo_judge_openai_model(task, OPENAI_JUDGE_MODELS["gpt-5.5"])
+
+
+def arm_echo_judge_openai_gpt_5_4(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_openai_model(task, OPENAI_JUDGE_MODELS["gpt-5.4"])
+
+
+def arm_echo_judge_openai_gpt_5_4_mini(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_openai_model(task, OPENAI_JUDGE_MODELS["gpt-5.4-mini"])
+
+
+def arm_echo_judge_openai_gpt_5_4_nano(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_openai_model(task, OPENAI_JUDGE_MODELS["gpt-5.4-nano"])
+
+
+def arm_echo_judge_gemini_model(task: dict, model_name: str) -> tuple[str, int]:
+    """Echo with a Gemini judge model via Google AI Studio/Gemini API."""
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+    except ImportError as exc:
+        raise RuntimeError(
+            "echo-judge-gemini requires langchain-google-genai. "
+            "Run: pip install langchain-google-genai"
+        ) from exc
+    pair = _haiku_pair(task["prompt"])
+    gemini_judge = ChatGoogleGenerativeAI(model=model_name, temperature=0)
+    if judge_agree(pair["a"], pair["b"], task, judge=gemini_judge):
+        return pair["a"], 3
+    sonnet = ChatClaudeCode(model="sonnet")
+    return call_with_persona(sonnet, PERSONA_A, task["prompt"]), 4
+
+
+def arm_echo_judge_gemini_pro(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_gemini_model(task, GEMINI_JUDGE_MODELS["gemini-2.5-pro"])
+
+
+def arm_echo_judge_gemini_flash(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_gemini_model(task, GEMINI_JUDGE_MODELS["gemini-2.5-flash"])
+
+
+def arm_echo_judge_gemini_flash_lite(task: dict) -> tuple[str, int]:
+    return arm_echo_judge_gemini_model(task, GEMINI_JUDGE_MODELS["gemini-2.5-flash-lite"])
 
 
 def arm_echo_oracle(task: dict) -> tuple[str, int]:
@@ -352,6 +438,13 @@ ARMS: dict[str, Callable[[dict], tuple[str, int]]] = {
     "echo-ast": arm_echo_ast,
     "echo-judge": arm_echo_judge,
     "echo-small-judge": arm_echo_small_judge,
+    "echo-judge-openai": arm_echo_judge_openai,
+    "echo-judge-openai-gpt-5.4": arm_echo_judge_openai_gpt_5_4,
+    "echo-judge-openai-gpt-5.4-mini": arm_echo_judge_openai_gpt_5_4_mini,
+    "echo-judge-openai-gpt-5.4-nano": arm_echo_judge_openai_gpt_5_4_nano,
+    "echo-judge-gemini-pro": arm_echo_judge_gemini_pro,
+    "echo-judge-gemini-flash": arm_echo_judge_gemini_flash,
+    "echo-judge-gemini-flash-lite": arm_echo_judge_gemini_flash_lite,
     "echo-oracle": arm_echo_oracle,
 }
 
@@ -374,11 +467,17 @@ def run_one(task: dict, arm_name: str, arm_fn: Callable[[dict], tuple[str, int]]
     t0 = time.perf_counter()
     try:
         output, sub_calls = arm_fn(task)
-        passed, detail = run_tests(output, task)
     except Exception as e:
         return TaskResult(
             task["task_id"], arm_name, False, f"{type(e).__name__}: {str(e)[:200]}",
             time.perf_counter() - t0, 0,
+        )
+    try:
+        passed, detail = run_tests(output, task)
+    except Exception as e:
+        return TaskResult(
+            task["task_id"], arm_name, False, f"test runner {type(e).__name__}: {str(e)[:200]}",
+            time.perf_counter() - t0, sub_calls,
         )
     return TaskResult(task["task_id"], arm_name, passed, detail, time.perf_counter() - t0, sub_calls)
 
@@ -391,10 +490,13 @@ def summarize(results: list[TaskResult]) -> dict:
     for arm, rs in by_arm.items():
         n = len(rs)
         passed = sum(1 for r in rs if r.passed)
-        # "Escalation rate" for Echo arms: fraction of tasks that used >2 calls
-        # (oracle and lexical both escalate when sub_calls jumps from 2 to 3).
-        # For non-Echo arms this is just an extra metric that happens to be 0%.
-        escalated = sum(1 for r in rs if r.sub_calls > 2)
+        failure_details = Counter(r.detail for r in rs if not r.passed)
+        # Escalation = Sonnet was called. Threshold depends on arm:
+        #   lexical/ast/oracle/small-judge: accept=2, escalate=3 -> threshold >2
+        #   judge/provider-judge: accept=3 (pair+judge), escalate=4 -> threshold >3
+        provider_judge_prefixes = ("echo-judge-openai", "echo-judge-gemini")
+        threshold = 3 if arm == "echo-judge" or arm.startswith(provider_judge_prefixes) else 2
+        escalated = sum(1 for r in rs if r.sub_calls > threshold)
         summary[arm] = {
             "n": n,
             "pass_rate": round(passed / n, 3) if n else None,
@@ -402,6 +504,8 @@ def summarize(results: list[TaskResult]) -> dict:
             "mean_wall_seconds": round(sum(r.wall_seconds for r in rs) / n, 2) if n else None,
             "total_sub_calls": sum(r.sub_calls for r in rs),
             "mean_sub_calls": round(sum(r.sub_calls for r in rs) / n, 2) if n else None,
+            "failures": n - passed,
+            "top_failure_details": dict(failure_details.most_common(5)),
         }
     return summary
 

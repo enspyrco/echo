@@ -17,6 +17,16 @@ For sweep narratives and headline numbers, see [`results/README.md`](results/REA
 - [Ollama](https://ollama.com/) at `http://localhost:11434`
 - Model: `qwen2.5:7b-instruct-q4_K_M` (see `SMALL_JUDGE_MODEL` in `run_pilot.py`)
 
+**Optional** — only for OpenAI judge arms:
+
+- `OPENAI_API_KEY` in the environment
+- OpenAI judge models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano` (see `OPENAI_JUDGE_MODELS` in `run_pilot.py`)
+
+**Optional** — only for Gemini judge arms:
+
+- `GOOGLE_API_KEY` in the environment
+- Gemini judge models: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite` (see `GEMINI_JUDGE_MODELS` in `run_pilot.py`)
+
 ```bash
 claude --version          # must work before running sweeps
 ollama pull qwen2.5:7b-instruct-q4_K_M   # only if using echo-small-judge
@@ -29,7 +39,7 @@ cd experiment
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4"
+pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4" "langchain-openai>=0.3" "langchain-google-genai>=2.0"
 ```
 
 ## Quick start (1 task)
@@ -52,12 +62,30 @@ Tasks **100–163** (64 tasks), same range the team used for main results:
 python run_pilot.py --start 100 --n-tasks 64
 ```
 
-Default runs **all 7 arms** → 448 model calls. Expect long runtime and Claude CLI usage. Confirm the 1-task run first.
+Default runs all arms. Expect long runtime, Claude CLI usage, and provider API usage for the judge arms. Confirm the 1-task run first.
 
 Subset of arms:
 
 ```bash
 python run_pilot.py --start 100 --n-tasks 5 --arms haiku-only,sonnet-only,echo-small-judge
+```
+
+Compare OpenAI judges:
+
+```bash
+python run_pilot.py --start 100 --n-tasks 10 --arms haiku-only,sonnet-only,echo-judge-openai,echo-judge-openai-gpt-5.4,echo-judge-openai-gpt-5.4-mini,echo-judge-openai-gpt-5.4-nano
+```
+
+Compare Gemini judges:
+
+```bash
+python run_pilot.py --start 100 --n-tasks 10 --arms haiku-only,sonnet-only,echo-judge-gemini-pro,echo-judge-gemini-flash,echo-judge-gemini-flash-lite
+```
+
+Compare all provider judges:
+
+```bash
+python run_pilot.py --start 100 --n-tasks 10 --arms echo-judge-openai,echo-judge-openai-gpt-5.4,echo-judge-openai-gpt-5.4-mini,echo-judge-openai-gpt-5.4-nano,echo-judge-gemini-pro,echo-judge-gemini-flash,echo-judge-gemini-flash-lite
 ```
 
 ## CLI reference
@@ -78,6 +106,13 @@ python run_pilot.py --start 100 --n-tasks 5 --arms haiku-only,sonnet-only,echo-s
 | `echo-ast` | Two Haiku personas; escalate if AST structure differs |
 | `echo-judge` | Two Haiku personas; Haiku judges equivalence |
 | `echo-small-judge` | Two Haiku personas; local Qwen 7B judge (Ollama) |
+| `echo-judge-openai` | Two Haiku personas; GPT-5.5 judges equivalence via OpenAI |
+| `echo-judge-openai-gpt-5.4` | Two Haiku personas; GPT-5.4 judges equivalence via OpenAI |
+| `echo-judge-openai-gpt-5.4-mini` | Two Haiku personas; GPT-5.4 mini judges equivalence via OpenAI |
+| `echo-judge-openai-gpt-5.4-nano` | Two Haiku personas; GPT-5.4 nano judges equivalence via OpenAI |
+| `echo-judge-gemini-pro` | Two Haiku personas; Gemini 2.5 Pro judges equivalence |
+| `echo-judge-gemini-flash` | Two Haiku personas; Gemini 2.5 Flash judges equivalence |
+| `echo-judge-gemini-flash-lite` | Two Haiku personas; Gemini 2.5 Flash-Lite judges equivalence |
 | `echo-oracle` | Two Haiku personas; escalate only if both fail tests (upper bound, not deployable) |
 
 ## Output format
@@ -90,6 +125,21 @@ Each sweep writes `results/<timestamp>_n<tasks>.jsonl`. One line per run:
 
 - **`passed`** — automated HumanEval tests succeeded
 - **`sub_calls`** — model calls for that task (Echo escalate → typically 3)
+
+Aggregate metrics:
+
+| Metric | Meaning |
+|--------|---------|
+| `n` | Number of tasks run for that arm |
+| `pass_rate` | Fraction of final selected implementations that passed HumanEval tests |
+| `escalation_rate` | Fraction of tasks where the arm called Sonnet after the cheap pair/judge disagreed |
+| `mean_wall_seconds` | Average elapsed seconds per task for that arm |
+| `total_sub_calls` | Total counted model calls for that arm |
+| `mean_sub_calls` | Average counted model calls per task |
+| `failures` | Number of tasks that failed tests or hit provider/harness errors |
+| `top_failure_details` | Most common failure reasons, useful for spotting provider limits, auth errors, syntax errors, and timeouts |
+
+For provider judge arms, `3 calls` means two Haiku candidates plus one judge call. `4 calls` means the judge disagreed and the arm escalated to Sonnet.
 
 ## View existing results (no run)
 
@@ -108,6 +158,8 @@ jq -s 'group_by(.arm) | map({arm: .[0].arm, n: length, passed: (map(select(.pass
 | `claude: command not found` | Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and ensure `claude` is on your `PATH` |
 | `claude --print failed` | Log in to Claude Code; confirm Max/subscription access |
 | `echo-small-judge requires langchain-ollama` | `pip install "langchain-ollama>=0.2,<0.4"` or omit that arm |
+| `echo-judge-openai requires langchain-openai` | `pip install "langchain-openai>=0.3"` and set `OPENAI_API_KEY` |
+| `echo-judge-gemini requires langchain-google-genai` | `pip install "langchain-google-genai>=2.0"` and set `GOOGLE_API_KEY` |
 | Ollama connection errors | Start Ollama; `ollama pull qwen2.5:7b-instruct-q4_K_M`; check `SMALL_JUDGE_BASE_URL` in `run_pilot.py` |
 | Very slow runs | Expected — each call spawns `claude --print` (~seconds overhead per call) |
 
