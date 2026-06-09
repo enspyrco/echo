@@ -55,6 +55,8 @@ BINARY_CHOICE_TEXTS = {
     "no": ("Yes", "No"),
     "true": ("True", "False"),
     "false": ("True", "False"),
+    "valid": ("valid", "invalid"),
+    "invalid": ("valid", "invalid"),
 }
 
 
@@ -117,14 +119,23 @@ def normalize_gold_for_choices(target: str, choices: dict[str, Any]) -> str:
     """
     labels = [_clean_label(label) for label in choices.get("label") or []]
     texts = [_clean_answer_text(text) for text in choices.get("text") or []]
+    # A choice list may carry text without explicit labels; fall back to
+    # positional A, B, C... so the texts.index() lookups below can't raise
+    # IndexError (mirrors the _CHOICE_LETTERS fallback in score_bbh).
+    if not labels and texts:
+        labels = list(_CHOICE_LETTERS[: len(texts)])
     target_text = _clean_answer_text(target)
 
-    if target_text in texts:
-        return labels[texts.index(target_text)]
-
+    # Prefer label parsing first for single-letter targets ("C"), so a decoy
+    # choice whose *text* happens to be a bare letter can't remap the gold.
+    # Binary/textual targets ("Yes"/"No") extract_choice()-to-None and fall
+    # through to text matching below.
     letter = extract_choice(str(target))
     if letter is not None and letter in labels:
         return letter
+
+    if target_text in texts:
+        return labels[texts.index(target_text)]
 
     raise ValueError(f"Could not parse gold target: {target!r}")
 
@@ -132,34 +143,47 @@ def normalize_gold_for_choices(target: str, choices: dict[str, Any]) -> str:
 def extract_choice(text: str) -> str | None:
     """Parse a multiple-choice letter from model output.
 
-    Tries explicit patterns first, then the last standalone A–Z near the end.
+    High-confidence patterns (explicit "Answer: X" / "the answer is X") are
+    matched against the FULL text, so an answer stated early and followed by
+    trailing reasoning is still recovered. Weak positional fallbacks (a lone
+    "(A)" line, a trailing single letter) are matched only against the last
+    few lines, where a stray capital is least likely to be prose.
+
+    Each capture is followed by a ``(?![A-Za-z])`` guard: under ``re.I`` the
+    class ``[A-Z]`` also matches lowercase, so without the guard a phrase like
+    "the answer is straightforward" would wrongly yield "S".
+
     Returns uppercase A–Z or None if unparseable.
     """
     if not text or not text.strip():
         return None
 
-    tail = "\n".join(text.strip().splitlines()[-5:])
-    patterns = [
-        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?\s*\.?\s*$",
-        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?",
-        r"(?i)\b(?:final\s+answer|answer|correct\s+answer|correct\s+choice)\s*(?:is|:)\s*\(?\s*([A-Z])\s*\)?",
-        r"(?i)\b(?:option|choice)\s+\(?\s*([A-Z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
-        r"(?i)\b(?:therefore|so|thus),?\s+\(?\s*([A-Z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
-        r"(?i)\b(?:therefore|so|thus),?\s+(?:the\s+)?(?:answer|correct\s+answer|choice)\s+is\s+\(?\s*([A-Z])\s*\)?",
-        r"(?im)^\s*\(?\s*([A-Z])\s*\)\s*$",
+    body = text.strip()
+    # High-confidence: explicit answer declarations, anywhere in the output.
+    high_confidence = [
+        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s*\.?\s*$",
+        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b(?:final\s+answer|answer|correct\s+answer|correct\s+choice)\s*(?:is|:)\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b(?:option|choice)\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+(?:the\s+)?(?:answer|correct\s+answer|choice)\s+is\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
     ]
-    for pat in patterns:
-        matches = re.findall(pat, tail)
+    for pat in high_confidence:
+        matches = re.findall(pat, body)
         if matches:
             return matches[-1].upper()
 
-    for pat in (
-        r"(?i)\b(?:option|choice|answer)\s+is\s+\(?\s*([A-Z])\s*\)?",
-        r"(?i)\b([A-Z])\s*\.?\s*$",
-    ):
-        m = re.search(pat, tail.strip())
-        if m:
-            return m.group(1).upper()
+    # Weak positional fallbacks: only trusted near the end of the output.
+    tail = "\n".join(body.splitlines()[-5:])
+    weak = [
+        r"(?im)^\s*\(?\s*([A-Z])\s*\)\s*$",
+        r"(?i)\b(?:option|choice|answer)\s+is\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b([A-Z])(?![A-Za-z])\s*\.?\s*$",
+    ]
+    for pat in weak:
+        matches = re.findall(pat, tail)
+        if matches:
+            return matches[-1].upper()
     return None
 
 
@@ -185,13 +209,16 @@ def extract_choice_text(text: str, task: dict) -> str | None:
     if not labels or not texts:
         return None
 
-    tail = "\n".join(str(text).strip().splitlines()[-5:])
+    # Matched against the FULL text (not just the tail): an answer stated
+    # early followed by trailing reasoning must still resolve. Over-matching
+    # is harmless here because a capture is only accepted if it is in `texts`.
+    body = str(text).strip()
     patterns = [
         r"(?im)^\s*answer\s*:\s*(.+?)\s*\.?\s*$",
         r"(?i)\b(?:final\s+answer|answer|correct\s+answer)\s*(?:is|:)\s*(.+?)(?:\.|\n|$)",
     ]
     for pat in patterns:
-        matches = re.findall(pat, tail)
+        matches = re.findall(pat, body)
         for match in reversed(matches):
             answer = _clean_answer_text(str(match).strip().strip("()"))
             if answer in texts:

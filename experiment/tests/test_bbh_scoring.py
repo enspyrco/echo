@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.bbh import extract_choice, format_prompt, normalize_gold, score_bbh
-from benchmarks.bbh import _row_to_task
+from benchmarks.bbh import _row_to_task, normalize_gold_for_choices
 
 
 class TestExtractChoice(unittest.TestCase):
@@ -48,6 +48,40 @@ class TestExtractChoice(unittest.TestCase):
 
     def test_reasoning_option_mentions_alone_are_not_parseable(self) -> None:
         self.assertIsNone(extract_choice("I considered (A), then (B), then (C)."))
+
+    # Regression: an answer stated EARLY followed by trailing reasoning must
+    # still be recovered. Tail-only matching dropped these (cage-match #335).
+    def test_answer_stated_early_then_six_trailing_lines(self) -> None:
+        out = "The answer is C.\n\nl1\nl2\nl3\nl4\nl5\nl6"
+        self.assertEqual(extract_choice(out), "C")
+
+    def test_answer_colon_early_then_trailing_lines(self) -> None:
+        out = "Answer: C\nthanks\nbye\n.\n-\n="
+        self.assertEqual(extract_choice(out), "C")
+
+    # Regression: under re.I, [A-Z] also matches lowercase, so a broad
+    # "answer is <word>" pattern must NOT grab the first letter of prose.
+    def test_answer_is_lowercase_word_is_not_a_false_letter(self) -> None:
+        self.assertIsNone(extract_choice("After analysis, the answer is straightforward."))
+        self.assertIsNone(extract_choice("The answer is dependent on the framing."))
+        self.assertIsNone(extract_choice("So the final answer is best understood as follows."))
+
+
+class TestNormalizeGoldForChoices(unittest.TestCase):
+    # Regression: choices carrying text without an explicit "label" key must
+    # not raise IndexError (cage-match: Kelvin).
+    def test_text_choices_without_labels_fall_back_to_positional(self) -> None:
+        self.assertEqual(
+            normalize_gold_for_choices("No", {"text": ["Yes", "No"]}),
+            "B",
+        )
+
+    # Regression: a single-letter target must resolve to its own label, not be
+    # remapped by a decoy choice whose text is that same letter (cage-match:
+    # Carnot).
+    def test_single_letter_target_not_remapped_by_decoy_text(self) -> None:
+        choices = {"label": ["A", "B", "C"], "text": ["apple", "A", "cat"]}
+        self.assertEqual(normalize_gold_for_choices("A", choices), "A")
 
 
 class TestScoreBbh(unittest.TestCase):
