@@ -32,6 +32,15 @@ python scripts/run_bbh_pilot.py \
   --arms haiku-only,sonnet-only,echo-lexical,echo-judge,echo-small-judge,echo-oracle
 ```
 
+Cross-family judge comparison on BBH (needs `OPENAI_API_KEY` / `GOOGLE_API_KEY`):
+
+```bash
+python scripts/run_bbh_pilot.py \
+  --subtasks logical_deduction_three_objects,causal_judgement,date_understanding \
+  --n-per-subtask 5 \
+  --arms haiku-only,sonnet-only,echo-judge-openai,echo-judge-openai-gpt-5.4-mini,echo-judge-gemini-flash,echo-oracle
+```
+
 Analyze:
 
 ```bash

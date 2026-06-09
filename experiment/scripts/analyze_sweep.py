@@ -14,8 +14,12 @@ HAIKU_UNIT = 1
 SONNET_UNIT = 3
 
 
+def _uses_judge_call(arm: str) -> bool:
+    return arm == "echo-judge" or arm.startswith(("echo-judge-openai", "echo-judge-gemini"))
+
+
 def escalated(arm: str, sub_calls: int) -> bool:
-    if arm == "echo-judge":
+    if _uses_judge_call(arm):
         return sub_calls > 3
     if arm.startswith("echo-"):
         return sub_calls > 2
@@ -27,7 +31,7 @@ def cost_units(arm: str, sub_calls: int) -> int:
         return sub_calls * HAIKU_UNIT
     if arm == "sonnet-only":
         return sub_calls * SONNET_UNIT
-    if arm == "echo-judge":
+    if _uses_judge_call(arm):
         return 3 * HAIKU_UNIT + (SONNET_UNIT if sub_calls > 3 else 0)
     if arm.startswith("echo-"):
         base = 2 * HAIKU_UNIT
