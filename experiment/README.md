@@ -172,6 +172,9 @@ cd experiment
 source .venv/bin/activate
 pip install "datasets>=2.14"
 
+# Pre-flight (tests + arm wiring; no model calls)
+python scripts/validate_harness.py
+
 # Unit tests
 python -m unittest tests.test_bbh_scoring tests.test_bbh_arms -v
 
