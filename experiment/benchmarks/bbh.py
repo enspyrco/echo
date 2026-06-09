@@ -153,6 +153,11 @@ def extract_choice(text: str) -> str | None:
     class ``[A-Z]`` also matches lowercase, so without the guard a phrase like
     "the answer is straightforward" would wrongly yield "S".
 
+    Among the high-confidence patterns the *latest* match in the text wins
+    (recency across ALL pattern families, by source offset) — so a chain of
+    thought like "Answer: A ... therefore the answer is C" resolves to C even
+    though the two declarations use different phrasings / different families.
+
     Returns uppercase A–Z or None if unparseable.
     """
     if not text or not text.strip():
@@ -168,10 +173,15 @@ def extract_choice(text: str) -> str | None:
         r"(?i)\b(?:therefore|so|thus),?\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
         r"(?i)\b(?:therefore|so|thus),?\s+(?:the\s+)?(?:answer|correct\s+answer|choice)\s+is\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
     ]
+    # Pick the high-confidence match with the largest source offset, so the
+    # final declaration wins regardless of which pattern family caught it.
+    best_pos, best_letter = -1, None
     for pat in high_confidence:
-        matches = re.findall(pat, body)
-        if matches:
-            return matches[-1].upper()
+        for m in re.finditer(pat, body):
+            if m.start(1) > best_pos:
+                best_pos, best_letter = m.start(1), m.group(1)
+    if best_letter is not None:
+        return best_letter.upper()
 
     # Weak positional fallbacks: only trusted near the end of the output.
     tail = "\n".join(body.splitlines()[-5:])

@@ -66,6 +66,19 @@ class TestExtractChoice(unittest.TestCase):
         self.assertIsNone(extract_choice("The answer is dependent on the framing."))
         self.assertIsNone(extract_choice("So the final answer is best understood as follows."))
 
+    # Regression: the latest high-confidence declaration wins even when it
+    # uses a DIFFERENT pattern family than an earlier one (cage-match r2:
+    # Carnot). "Answer: A" early, "therefore the answer is C" late -> C.
+    def test_latest_high_confidence_wins_across_pattern_families(self) -> None:
+        self.assertEqual(
+            extract_choice("Answer: A\nLet me reconsider.\nTherefore the answer is C."),
+            "C",
+        )
+        self.assertEqual(
+            extract_choice("Answer: A\nactually, the answer is C."),
+            "C",
+        )
+
 
 class TestNormalizeGoldForChoices(unittest.TestCase):
     # Regression: choices carrying text without an explicit "label" key must
