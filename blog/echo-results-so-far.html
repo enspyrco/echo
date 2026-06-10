@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo: results so far — cheap LLM routing without a router</title>
+<style>
+  :root {
+    --ink: #1a1a2e; --muted: #5a5a72; --line: #e4e4ef;
+    --accent: #5b3df5; --accent-soft: #efeaff; --good: #0a7d4d; --warn: #b25f00;
+    --bg: #fbfbfe; --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg); margin: 0; padding: 0;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 2.1rem; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-size: 1.4rem; letter-spacing: -0.01em; margin: 2.4em 0 0.6em; }
+  h3 { font-size: 1.1rem; margin: 1.6em 0 0.4em; }
+  .dek { font-size: 1.2rem; color: var(--muted); margin: 0 0 24px; }
+  .meta { font-size: 0.9rem; color: var(--muted); border-top: 1px solid var(--line);
+          border-bottom: 1px solid var(--line); padding: 12px 0; margin: 24px 0 8px; }
+  .meta a { color: var(--accent); text-decoration: none; }
+  .meta a:hover { text-decoration: underline; }
+  a { color: var(--accent); }
+  .tldr { background: var(--accent-soft); border-radius: 12px; padding: 18px 22px; margin: 28px 0; }
+  .tldr p { margin: 0.4em 0; }
+  .tldr strong { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  tr.hi td { background: #f3fbf7; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  details { border: 1px solid var(--line); border-radius: 10px; padding: 0 18px; margin: 16px 0; background: var(--card); }
+  details[open] { padding-bottom: 12px; }
+  summary { cursor: pointer; padding: 14px 0; font-weight: 600; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--accent); }
+  details[open] summary::before { content: "▾ "; }
+  blockquote { margin: 18px 0; padding: 2px 18px; border-left: 3px solid var(--accent); color: var(--muted); }
+  code { background: #f0f0f7; padding: 1px 6px; border-radius: 5px; font-size: 0.88em; }
+  .pill { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 9px; border-radius: 99px; }
+  .pill.good { background: #e3f6ec; color: var(--good); }
+  .pill.warn { background: #fbefdc; color: var(--warn); }
+  .authors { display: grid; gap: 14px; margin: 18px 0; }
+  .author { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+  .author h4 { margin: 0 0 4px; font-size: 1.02rem; }
+  .author p { margin: 0; font-size: 0.9rem; color: var(--muted); }
+  footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--line);
+           font-size: 0.85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Echo: results so far</h1>
+  <p class="dek">Routing LLM requests cheaply without training a router — and the measurement bug that nearly fooled us.</p>
+
+  <div class="meta">
+    By
+    <a href="https://enspyr.co/about#nicholas-meinhold">Nick Meinhold</a>,
+    <a href="https://enspyr.co/about#robin-langer">Robin Langer</a>,
+    <a href="https://enspyr.co/about#meghana-ganapa">Meghana Ganapa</a>, and
+    <a href="https://enspyr.co/about#adarsha-aryal">Adarsha Aryal</a>
+    &nbsp;·&nbsp; 10 June 2026
+  </div>
+
+  <div class="tldr">
+    <p><strong>The idea:</strong> instead of training a classifier to route easy tasks to a cheap model and hard ones to an expensive model, call the <em>cheap</em> model twice with two different personas. If the answers agree, keep the cheap one; if they disagree, escalate. No classifier, no labels.</p>
+    <p><strong>What works:</strong> on HumanEval's hard slice, a cross-family local judge (Qwen 2.5 7B) reaches <strong>94% of the oracle's routing quality</strong>, is <strong>~29% cheaper than always using Sonnet</strong>, and matches its pass rate.</p>
+    <p><strong>The honest part:</strong> our first reasoning-benchmark numbers were a <em>harness bug</em>, not a result. Finding and fixing it is half this update.</p>
+  </div>
+
+  <h2>Most LLM apps overpay</h2>
+  <p>A trivial "reverse this string" and a gnarly multi-step refactor usually go to the same expensive endpoint. The standard fix is a <strong>router</strong>: a learned classifier that decides "easy → cheap model, hard → expensive." RouteLLM, FrugalGPT, Hybrid LLM and AutoMix all do versions of this, and they work — but every one needs labelled training data for <em>your</em> task domain. That label-collection step is the adoption bottleneck. You can't drop a trained router into a new product on day one.</p>
+  <p>We wanted to know how much of the benefit you can get with <em>none</em> of the training.</p>
+
+  <h2>The idea: let the cheap model check itself</h2>
+  <p>Here's the whole move. Call the cheap model twice on the same task, with two different persona prompts — one a "careful, methodical programmer," the other a "pragmatic senior engineer who writes the simplest thing that works." Then:</p>
+  <ul>
+    <li>If the two answers <strong>agree</strong>, framing didn't matter — the task was easy. Keep the cheap answer.</li>
+    <li>If they <strong>disagree</strong>, the task is sitting on a decision boundary where small perturbations change the output. That's your difficulty signal. Escalate to the expensive model.</li>
+  </ul>
+  <p>The difficulty signal is manufactured at inference time, for free, out of the model's own (in)consistency. It's a reframe of self-consistency (Wang et al., 2022) — but used as a <em>cost</em> signal instead of an accuracy one. The arithmetic clears one bar: two cheap calls must cost less than one expensive call. At current Claude pricing, Haiku-twice beats Sonnet-once while the tier gap stays ~3×. It does.</p>
+
+  <h2>The catch nobody warns you about: what does "agree" mean?</h2>
+  <p>"If the two answers agree" sounds simple until you implement <code>agree(a, b)</code> for code. Two programs can be character-identical, or solve the same problem with a loop vs a comprehension, a dict vs a class, different names, different decomposition — all "agreement" in the sense that matters (same behaviour) and "disagreement" in the sense that's easy to measure (different text).</p>
+
+  <details>
+    <summary>The ladder of agreement signals we tested</summary>
+    <table>
+      <tr><th>Signal</th><th>What it checks</th><th>Extra cost</th></tr>
+      <tr><td><strong>lexical</strong></td><td>normalized text match</td><td>free</td></tr>
+      <tr><td><strong>AST</strong></td><td>Python syntax-tree structure match</td><td>free</td></tr>
+      <tr><td><strong>judge</strong></td><td>a third Haiku call: "are these equivalent?"</td><td>+1 cheap call</td></tr>
+      <tr><td><strong>small-judge</strong></td><td>same question, asked to a <em>local</em> Qwen 2.5 7B</td><td>~free (local compute)</td></tr>
+      <tr><td><strong>oracle</strong></td><td>ground truth: do the answers pass the hidden tests?</td><td>not deployable</td></tr>
+    </table>
+    <p>The oracle isn't a real strategy — it cheats by looking at test results you'd never have in production. We include it to mark the ceiling. The research question is how close a <em>deployable</em> signal gets to it.</p>
+  </details>
+
+  <h2>Results: HumanEval hard slice</h2>
+  <p>All arms over HumanEval 100–163 (the first hundred tasks are too easy to separate arms). Cost in units where <strong>Haiku = 1</strong>, <strong>Sonnet = 3</strong> per call. "Oracle alignment" = how often the signal escalates on exactly the tasks the oracle would.</p>
+
+  <table>
+    <tr><th>Arm</th><th class="num">Pass</th><th class="num">Escalations</th><th class="num">Oracle align</th><th class="num">Cost</th></tr>
+    <tr><td>haiku-only</td><td class="num">63/64</td><td class="num">—</td><td class="num">—</td><td class="num">64</td></tr>
+    <tr><td>sonnet-only</td><td class="num">63/64</td><td class="num">—</td><td class="num">—</td><td class="num">192</td></tr>
+    <tr><td>echo-lexical</td><td class="num">64/64</td><td class="num">55/64</td><td class="num">16%</td><td class="num">293</td></tr>
+    <tr><td>echo-ast</td><td class="num">62/64</td><td class="num">54/64</td><td class="num">17%</td><td class="num">290</td></tr>
+    <tr><td>echo-judge (Haiku)</td><td class="num">61/64</td><td class="num">11/64</td><td class="num">81%</td><td class="num">225</td></tr>
+    <tr class="hi"><td>echo-small-judge (Qwen 7B)</td><td class="num">62/64</td><td class="num">3/64</td><td class="num">94%</td><td class="num">137</td></tr>
+    <tr><td>echo-oracle (ceiling)</td><td class="num">64/64</td><td class="num">1/64</td><td class="num">—</td><td class="num">131</td></tr>
+  </table>
+
+  <p>Three things fall out:</p>
+  <ul>
+    <li><strong>The cost thesis holds with a deployable signal.</strong> <code>echo-small-judge</code> lands within ~5% of the oracle's cost floor (137 vs 131), ~29% cheaper than always-Sonnet, with a pass rate statistically equal to Sonnet on this slice.</li>
+    <li><strong>Free signals are noise here.</strong> Lexical and AST escalate ~85% of the time — they cost <em>more</em> than just using Sonnet.</li>
+    <li><strong>The surprise: a cross-family <em>local</em> judge beats the same-family one.</strong> Qwen 7B (a different model family, running locally) tracks the oracle better than a Haiku judge (94% vs 81%) with a third the escalations. Independence beats capability for this job.</li>
+  </ul>
+
+  <blockquote>Why would a smaller, cheaper, local model judge agreement <em>better</em> than Haiku? Our read: a same-family judge shares Haiku's blind spots — it agrees that two Haiku answers match precisely when Haiku is consistently wrong. A different family disagrees out of genuine independence. That's the whole thesis in miniature.</blockquote>
+
+  <details>
+    <summary>Methodology & caveats</summary>
+    <p>HumanEval only; n = 64; single hard slice. The local-judge mean wall time is ~86s/task on a CPU-only ARM box — that's infrastructure latency, not API cost, and would drop sharply on a GPU. Earlier sweeps surfaced (and fixed) two output-parser bugs in the code harness before these numbers stabilised — a recurring theme (see below). Full per-task JSONL logs and sweep history live in the repo's <code>experiment/results/</code>.</p>
+  </details>
+
+  <h2>The plot twist: our first reasoning numbers were a lie</h2>
+  <p>HumanEval is code. To claim Echo generalises, we need reasoning benchmarks — so we ported the harness to BBH (Big-Bench Hard). The n=10 pilot came back looking like this:</p>
+
+  <table>
+    <tr><th>Arm</th><th class="num">Pass rate</th></tr>
+    <tr><td>haiku-only</td><td class="num">0.14</td></tr>
+    <tr><td>sonnet-only</td><td class="num">0.14</td></tr>
+    <tr><td>echo-judge</td><td class="num">0.12</td></tr>
+  </table>
+
+  <p>Low, and <em>suspiciously flat</em>. The red flag: on reasoning tasks, Sonnet should clearly beat Haiku. Them tying at 0.14 doesn't say "Echo doesn't work" — it says <strong>the measuring instrument is broken.</strong></p>
+  <p>So we put the BBH scoring code through an adversarial review — three AI reviewers from different model families, each trying to break it. They found the answer parser was silently corrupting results in <em>both</em> directions.</p>
+
+  <details>
+    <summary>The three bugs (and why a silent one is the worst kind)</summary>
+    <ul>
+      <li><strong>Tail truncation.</strong> The parser only looked at the last 5 lines of output before searching for the answer. A model that states "The answer is C" early and then keeps explaining had its answer fall outside the window — scored as unparseable, counted as a failure.</li>
+      <li><strong>Case-folding over-match.</strong> A case-insensitive letter pattern matched the first letter of the <em>next word</em>: "the answer is <u>s</u>traightforward" was parsed as answer "S". This one is bidirectional — it manufactures both false failures (wrong letter) and false passes (lucky letter), silently, because a bogus-but-valid letter is accepted without complaint.</li>
+      <li><strong>Cross-family recency.</strong> "Answer: A … therefore the answer is C" returned A — an early scratch line beat the final answer because the two were caught by different patterns.</li>
+    </ul>
+    <p>All three are fixed, each with a regression test; the scoring suite is green. The lesson: <em>a measurement apparatus with a silent, bidirectional bias is worse than a noisy one.</em> The flat 0.14 wasn't just low — it was untrustworthy in an unknown direction.</p>
+  </details>
+
+  <p><span class="pill warn">In progress</span> The fix is in; the proof is a re-run showing the pass rates <em>separate</em>. We won't scale to the full sweep until they do — no point reproducing a (now-fixed) bug at scale.</p>
+
+  <h2>What's next</h2>
+  <ul>
+    <li><strong>Confirm the BBH fix</strong> — re-run the pilot; Sonnet should now beat Haiku.</li>
+    <li><strong>Cross-family judge sweep at n=30</strong> — does the Qwen-beats-Haiku surprise from code hold on reasoning? We've added OpenAI and Gemini judges to widen the matrix (same-family vs cross-family × small vs large).</li>
+    <li><strong>Full BBH sweep, then MMLU-Pro</strong> — statistically meaningful Pareto numbers across benchmarks.</li>
+    <li><strong>The real test</strong> — a heterogeneous real-world task (PR review with merge decisions), where task difficulty actually varies.</li>
+  </ul>
+  <p>If Echo lands on or above a trained router's cost/accuracy frontier with <em>zero</em> training data, that's the result worth publishing. If it collapses to "Haiku with extra steps," that's a clean negative — also worth publishing.</p>
+
+  <h2 id="authors">The team</h2>
+  <div class="authors">
+    <div class="author">
+      <h4><a href="https://enspyr.co/about#nicholas-meinhold">Nick Meinhold</a> <span style="font-weight:400;color:var(--muted)">· Director &amp; Tech Lead</span></h4>
+      <p>Originated the self-consistency-as-cost-signal idea and the experiment design.
+         <a href="https://au.linkedin.com/in/nicholas-meinhold-3864b812">LinkedIn</a> ·
+         <a href="https://github.com/nickmeinhold">GitHub</a></p>
+    </div>
+    <div class="author">
+      <h4><a href="https://enspyr.co/about#robin-langer">Robin Langer</a> <span style="font-weight:400;color:var(--muted)">· Agentic Engineer</span></h4>
+      <p>Agentic engineering and research; co-founder of Sawasdee Cellars.
+         <a href="https://github.com/RaggedR">GitHub</a> ·
+         <a href="https://www.linkedin.com/in/robin-langer-6a4261364/">LinkedIn</a> ·
+         <a href="https://www.semanticscholar.org/author/Robin-Langer/39449928">Semantic Scholar</a> ·
+         <a href="https://huggingface.co/RobBobin">Hugging Face</a></p>
+    </div>
+    <div class="author">
+      <h4><a href="https://enspyr.co/about#meghana-ganapa">Meghana Ganapa</a> <span style="font-weight:400;color:var(--muted)">· Agentic AI Engineer</span></h4>
+      <p>Data Science graduate, University of Melbourne. ML/NLP across healthcare and legal domains. On Echo: cross-family judge arms and BBH scoring.
+         <a href="https://meghanaganapa.github.io/meghana-portfolio/">Portfolio</a> ·
+         <a href="https://au.linkedin.com/in/meghana-ganapa">LinkedIn</a> ·
+         <a href="https://github.com/meghanaganapa">GitHub</a></p>
+    </div>
+    <div class="author">
+      <h4><a href="https://enspyr.co/about#adarsha-aryal">Adarsha Aryal</a> <span style="font-weight:400;color:var(--muted)">· Agentic Engineer</span></h4>
+      <p>Master of Data Science, Monash University; exploring agentic AI and LLMs. On Echo: judge-branch integration, the BBH sweep harness, and run tooling.
+         <a href="https://www.adarshaaryal.com.np">Website</a> ·
+         <a href="https://www.linkedin.com/in/aryaladarsha/">LinkedIn</a> ·
+         <a href="https://github.com/Adarsha653">GitHub</a> ·
+         <a href="https://x.com/adarsha653">X</a></p>
+    </div>
+  </div>
+
+  <footer>
+    <p>Echo is open research at <a href="https://github.com/enspyrco/echo">github.com/enspyrco/echo</a>. Background reading: Wang et al. 2022 (Self-Consistency), Ong et al. 2024 (RouteLLM), Chen et al. 2023 (FrugalGPT), Ding et al. 2024 (Hybrid LLM). Earlier post: <a href="https://enspyr.co/blog/echo-cheap-routing-without-a-router">Echo: routing LLM requests cheaply without training a router</a>.</p>
+  </footer>
+
+</div>
+</body>
+</html>
