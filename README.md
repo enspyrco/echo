@@ -39,7 +39,7 @@ Echo proposes a simpler primitive. Call the cheap model twice with two different
 
 ## Where the work lives
 
-- **Compute:** OCI free-tier ARM (149.118.69.221), behind Caddy. The harness is I/O-bound (API calls), so ARM is fine.
+- **Compute:** OCI free-tier ARM (158.179.17.233, host `nick-mel`), behind Caddy. The harness is I/O-bound (API calls), so ARM is fine.
 - **Public replication endpoint:** plan to expose a subset of experiments at a public URL so reviewers can re-run live. This is rare in ML papers and tends to build trust.
 - **Repo layout (planned):**
   - `harness/` Python orchestrator that runs routing arms against benchmarks
