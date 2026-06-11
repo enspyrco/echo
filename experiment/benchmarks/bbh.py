@@ -50,6 +50,29 @@ ALL_SUBTASKS = [
 ]
 
 _CHOICE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+BINARY_CHOICE_TEXTS = {
+    "yes": ("Yes", "No"),
+    "no": ("Yes", "No"),
+    "true": ("True", "False"),
+    "false": ("True", "False"),
+    "valid": ("valid", "invalid"),
+    "invalid": ("valid", "invalid"),
+}
+
+
+def _clean_label(label: str) -> str:
+    return str(label).strip().strip("()").upper()
+
+
+def _clean_answer_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text).strip().lower())
+
+
+def _synthetic_binary_choices(target: str) -> dict[str, list[str]] | None:
+    texts = BINARY_CHOICE_TEXTS.get(_clean_answer_text(target))
+    if texts is None:
+        return None
+    return {"label": ["A", "B"], "text": list(texts)}
 
 
 def _format_choices(choices: dict[str, Any]) -> str:
@@ -88,41 +111,98 @@ def normalize_gold(target: str) -> str:
     return letter
 
 
+def normalize_gold_for_choices(target: str, choices: dict[str, Any]) -> str:
+    """Normalize a gold target against a concrete choice list.
+
+    Some BBH configs have letter targets ("C"); binary configs can have text
+    targets ("Yes"/"No"). Convert either form to the matching choice label.
+    """
+    labels = [_clean_label(label) for label in choices.get("label") or []]
+    texts = [_clean_answer_text(text) for text in choices.get("text") or []]
+    # A choice list may carry text without explicit labels; fall back to
+    # positional A, B, C... so the texts.index() lookups below can't raise
+    # IndexError (mirrors the _CHOICE_LETTERS fallback in score_bbh).
+    if not labels and texts:
+        labels = list(_CHOICE_LETTERS[: len(texts)])
+    target_text = _clean_answer_text(target)
+
+    # Prefer label parsing first for single-letter targets ("C"), so a decoy
+    # choice whose *text* happens to be a bare letter can't remap the gold.
+    # Binary/textual targets ("Yes"/"No") extract_choice()-to-None and fall
+    # through to text matching below.
+    letter = extract_choice(str(target))
+    if letter is not None and letter in labels:
+        return letter
+
+    if target_text in texts:
+        return labels[texts.index(target_text)]
+
+    raise ValueError(f"Could not parse gold target: {target!r}")
+
+
 def extract_choice(text: str) -> str | None:
     """Parse a multiple-choice letter from model output.
 
-    Tries explicit patterns first, then the last standalone A–Z near the end.
+    High-confidence patterns (explicit "Answer: X" / "the answer is X") are
+    matched against the FULL text, so an answer stated early and followed by
+    trailing reasoning is still recovered. Weak positional fallbacks (a lone
+    "(A)" line, a trailing single letter) are matched only against the last
+    few lines, where a stray capital is least likely to be prose.
+
+    Each capture is followed by a ``(?![A-Za-z])`` guard: under ``re.I`` the
+    class ``[A-Z]`` also matches lowercase, so without the guard a phrase like
+    "the answer is straightforward" would wrongly yield "S".
+
+    Among the high-confidence patterns the *latest* match in the text wins
+    (recency across ALL pattern families, by source offset) — so a chain of
+    thought like "Answer: A ... therefore the answer is C" resolves to C even
+    though the two declarations use different phrasings / different families.
+
     Returns uppercase A–Z or None if unparseable.
     """
     if not text or not text.strip():
         return None
 
-    patterns = [
-        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?\s*\.?\s*$",
-        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])\s*\)?",
-        r"(?im)^\s*\(?\s*([A-Z])\s*\)\s*$",
-        r"(?im)correct\s+(?:answer\s+is|choice\s+is)\s*\(?\s*([A-Z])\s*\)?",
-        r"\(\s*([A-Z])\s*\)",
+    body = text.strip()
+    # High-confidence: explicit answer declarations, anywhere in the output.
+    high_confidence = [
+        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s*\.?\s*$",
+        r"(?im)^\s*answer\s*:\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b(?:final\s+answer|answer|correct\s+answer|correct\s+choice)\s*(?:is|:)\s*\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b(?:option|choice)\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?\s+(?:is\s+)?(?:correct|best|right)",
+        r"(?i)\b(?:therefore|so|thus),?\s+(?:the\s+)?(?:answer|correct\s+answer|choice)\s+is\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
     ]
-    for pat in patterns:
-        matches = re.findall(pat, text)
+    # Pick the high-confidence match with the largest source offset, so the
+    # final declaration wins regardless of which pattern family caught it.
+    best_pos, best_letter = -1, None
+    for pat in high_confidence:
+        for m in re.finditer(pat, body):
+            if m.start(1) > best_pos:
+                best_pos, best_letter = m.start(1), m.group(1)
+    if best_letter is not None:
+        return best_letter.upper()
+
+    # Weak positional fallbacks: only trusted near the end of the output.
+    tail = "\n".join(body.splitlines()[-5:])
+    weak = [
+        r"(?im)^\s*\(?\s*([A-Z])\s*\)\s*$",
+        r"(?i)\b(?:option|choice|answer)\s+is\s+\(?\s*([A-Z])(?![A-Za-z])\s*\)?",
+        r"(?i)\b([A-Z])(?![A-Za-z])\s*\.?\s*$",
+    ]
+    for pat in weak:
+        matches = re.findall(pat, tail)
         if matches:
             return matches[-1].upper()
-
-    tail = "\n".join(text.strip().splitlines()[-5:])
-    for pat in (
-        r"(?i)\b(?:option|choice|answer)\s+is\s+\(?\s*([A-Z])\s*\)?",
-        r"(?i)\b([A-Z])\s*\.?\s*$",
-    ):
-        m = re.search(pat, tail.strip())
-        if m:
-            return m.group(1).upper()
     return None
 
 
 def score_bbh(model_output: str, task: dict) -> tuple[bool, str]:
     """Grade a BBH response against task['gold']."""
     pred = extract_choice(model_output)
+    valid_labels = set(task.get("choice_labels") or _CHOICE_LETTERS)
+    if pred not in valid_labels:
+        pred = extract_choice_text(model_output, task)
     if pred is None:
         return False, "unparseable"
     gold = task["gold"]
@@ -131,17 +211,49 @@ def score_bbh(model_output: str, task: dict) -> tuple[bool, str]:
     return False, f"expected {gold} got {pred}"
 
 
+def extract_choice_text(text: str, task: dict) -> str | None:
+    """Map answer text like 'Answer: No' to its choice label for binary tasks."""
+    choices = task.get("choices") or {}
+    labels = [_clean_label(label) for label in choices.get("label") or []]
+    texts = [_clean_answer_text(choice_text) for choice_text in choices.get("text") or []]
+    if not labels or not texts:
+        return None
+
+    # Matched against the FULL text (not just the tail): an answer stated
+    # early followed by trailing reasoning must still resolve. Over-matching
+    # is harmless here because a capture is only accepted if it is in `texts`.
+    body = str(text).strip()
+    patterns = [
+        r"(?im)^\s*answer\s*:\s*(.+?)\s*\.?\s*$",
+        r"(?i)\b(?:final\s+answer|answer|correct\s+answer)\s*(?:is|:)\s*(.+?)(?:\.|\n|$)",
+    ]
+    for pat in patterns:
+        matches = re.findall(pat, body)
+        for match in reversed(matches):
+            answer = _clean_answer_text(str(match).strip().strip("()"))
+            if answer in texts:
+                return labels[texts.index(answer)]
+    return None
+
+
 def _row_to_task(subtask: str, index: int, row: dict) -> dict:
-    gold = normalize_gold(row["target"])
+    choices = row.get("choices") or _synthetic_binary_choices(row["target"])
+    if choices is None:
+        raise ValueError(
+            f"BBH subtask {subtask!r} is not multiple-choice or binary; "
+            "this harness only supports choice-label scoring."
+        )
+    gold = normalize_gold_for_choices(row["target"], choices)
     return {
         "task_id": f"bbh/{subtask}/{index}",
-        "prompt": format_prompt(row["question"], row["choices"]),
+        "prompt": format_prompt(row["question"], choices),
         "gold": gold,
+        "choice_labels": [_clean_label(label) for label in choices.get("label") or []],
         "benchmark": "bbh",
         "subtask": subtask,
         # Echo arms use task["prompt"]; keep raw fields for debugging.
         "question": row["question"],
-        "choices": row["choices"],
+        "choices": choices,
     }
 
 

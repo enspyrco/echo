@@ -95,9 +95,40 @@ On HumanEval 100–163 there are **zero** tasks where lexical agreed but both ch
 
 ---
 
+## BBH (pending canonical sweep)
+
+**Status:** Harness merged on `integrate/judge-branches`; canonical JSONL not yet committed.
+
+**Planned sweep:** 3 pilot subtasks × 10 tasks (n = 30), arms:
+
+`haiku-only`, `sonnet-only`, `echo-judge-openai`, `echo-judge-openai-gpt-5.4-mini`, `echo-judge-gemini-flash`, `echo-oracle`
+
+Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md)
+
+**Meghana pilot (n = 16, not committed):** GPT-5.5 best on pass rate + escalation; GPT-5.4-nano one bad accept; Gemini Flash-Lite competitive with Flash. Needs reproduction at n ≥ 30 on merged harness before paper claims.
+
+When the canonical JSONL lands, fill in:
+
+| Arm | Pass | Escalations | Oracle alignment | Cost (units) |
+|-----|------|-------------|------------------|--------------|
+| haiku-only | — | — | — | — |
+| sonnet-only | — | — | — | — |
+| echo-judge-openai | — | — | — | — |
+| echo-judge-openai-gpt-5.4-mini | — | — | — | — |
+| echo-judge-gemini-flash | — | — | — | — |
+| echo-oracle | — | — | (ceiling) | — |
+
+Analyze with:
+
+```bash
+python scripts/analyze_sweep.py results/<timestamp>_bbh_n30.jsonl
+```
+
+---
+
 ## Open work
 
-- **BBH** — test whether cross-family judging generalizes to hard reasoning (priority over MMLU-Pro for the core hypothesis).
+- **BBH canonical sweep** — Nick to run on server; Adarsha to analyze and update this file.
 - **MMLU-Pro** — breadth / domain coverage after BBH.
 - **Semantic persona axes** — e.g. edge-case-hunter vs happy-path-implementer (current personas are stylistic).
 - **Harness** — reproducible sweep metadata, cost in JSONL, `analyze_sweep.py`, resume, BBH adapter (see [`../README.md`](../README.md)).

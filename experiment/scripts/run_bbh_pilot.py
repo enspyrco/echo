@@ -25,7 +25,6 @@ def run_one_bbh(task: dict, arm_name: str, arm_fn) -> TaskResult:
     t0 = time.perf_counter()
     try:
         output, sub_calls = arm_fn(task)
-        passed, detail = score_bbh(output, task)
     except Exception as e:
         return TaskResult(
             task["task_id"],
@@ -34,6 +33,17 @@ def run_one_bbh(task: dict, arm_name: str, arm_fn) -> TaskResult:
             f"{type(e).__name__}: {str(e)[:200]}",
             time.perf_counter() - t0,
             0,
+        )
+    try:
+        passed, detail = score_bbh(output, task)
+    except Exception as e:
+        return TaskResult(
+            task["task_id"],
+            arm_name,
+            False,
+            f"scorer {type(e).__name__}: {str(e)[:200]}",
+            time.perf_counter() - t0,
+            sub_calls,
         )
     return TaskResult(
         task["task_id"], arm_name, passed, detail,
