@@ -153,4 +153,16 @@ jq 'select(.arm == "echo-judge" and .sub_calls > 3) | .task_id' 20260519T085620Z
 jq -s 'group_by(.arm) | map({arm: .[0].arm, calls: (map(.sub_calls) | add)})' 20260519T085620Z_n64.jsonl
 ```
 
-Cost units (Haiku=1, Sonnet=3): for Echo arms, `2 + 3 * (sub_calls > 2 ? 1 : 0)` per task when `sub_calls` is 2 or 3; see blog for arm-specific accounting when the judge adds a third cheap call.
+Cost units normalize all provider spend to **Haiku persona call = 1.0 unit** (Claude Haiku 4.5 list pricing). Per-call cost uses typical token profiles: persona calls 600 in / 250 out; judge calls 1200 in / 3 out. Implementation: [`../cost_units.py`](../cost_units.py).
+
+| Model | Input $/M | Output $/M | Judge call (units) |
+|-------|-----------|------------|-------------------|
+| Haiku (persona) | $1 | $5 | 1.0 (persona) / ~0.73 (judge) |
+| Sonnet | $3 | $15 | 3.0 (persona) |
+| GPT-5.5 | $5 | $30 | ~3.3 |
+| GPT-5.4 | $2.50 | $15 | ~1.6 |
+| GPT-5.4-mini | $0.75 | $4.50 | ~0.49 |
+| GPT-5.4-nano | $0.20 | $1.25 | ~0.13 |
+| Gemini 2.5 Flash | $0.30 | $2.50 | ~0.19 |
+| Gemini 2.5 Flash-Lite | $0.15 | $1.25 | ~0.10 |
+| Local Qwen (Ollama) | — | — | 0 |

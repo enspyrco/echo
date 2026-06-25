@@ -141,6 +141,8 @@ Aggregate metrics:
 
 For provider judge arms, `3 calls` means two Haiku candidates plus one judge call. `4 calls` means the judge disagreed and the arm escalated to Sonnet.
 
+**Cost units** (see [`cost_units.py`](cost_units.py)): Haiku persona call = 1.0; Sonnet persona = 3.0; OpenAI/Gemini judge calls priced from list API rates; local Ollama judge = 0. Run `python scripts/analyze_sweep.py results/<file>.jsonl` for totals.
+
 ## View existing results (no run)
 
 Committed JSONL files are under `results/`. Summary and interpretation: [`results/README.md`](results/README.md).

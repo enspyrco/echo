@@ -9,34 +9,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Haiku=1, Sonnet=3 per model call (Echo convention from results README).
-HAIKU_UNIT = 1
-SONNET_UNIT = 3
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-def _uses_judge_call(arm: str) -> bool:
-    return arm == "echo-judge" or arm.startswith(("echo-judge-openai", "echo-judge-gemini"))
-
-
-def escalated(arm: str, sub_calls: int) -> bool:
-    if _uses_judge_call(arm):
-        return sub_calls > 3
-    if arm.startswith("echo-"):
-        return sub_calls > 2
-    return False
-
-
-def cost_units(arm: str, sub_calls: int) -> int:
-    if arm == "haiku-only":
-        return sub_calls * HAIKU_UNIT
-    if arm == "sonnet-only":
-        return sub_calls * SONNET_UNIT
-    if _uses_judge_call(arm):
-        return 3 * HAIKU_UNIT + (SONNET_UNIT if sub_calls > 3 else 0)
-    if arm.startswith("echo-"):
-        base = 2 * HAIKU_UNIT
-        return base + (SONNET_UNIT if sub_calls > 2 else 0)
-    return sub_calls * HAIKU_UNIT
+from cost_units import cost_units, escalated, judge_units_for_arm
 
 
 def load_records(path: Path) -> tuple[dict | None, list[dict]]:
@@ -75,9 +50,10 @@ def main() -> None:
     oracle_rows = by_arm.get("echo-oracle", [])
     oracle_esc = {r["task_id"]: escalated("echo-oracle", r["sub_calls"]) for r in oracle_rows}
 
-    print(f"=== {args.jsonl.name} ({len(rows)} rows) ===\n")
-    print(f"{'arm':<20} {'pass':>10} {'esc%':>8} {'cost':>8} {'align':>8}")
-    print("-" * 58)
+    print(f"=== {args.jsonl.name} ({len(rows)} rows) ===")
+    print("Cost units: Haiku persona = 1.0; includes judge API pricing (see cost_units.py)\n")
+    print(f"{'arm':<32} {'pass':>10} {'esc%':>8} {'cost':>8} {'align':>8}")
+    print("-" * 70)
 
     for arm in sorted(by_arm):
         rs = by_arm[arm]
@@ -98,8 +74,8 @@ def main() -> None:
             align = f"{100 * same / len(oracle_esc):.0f}%"
 
         print(
-            f"{arm:<20} {passed}/{n:<7} {100 * esc / n:>6.1f}% "
-            f"{total_cost:>8} {align:>8}"
+            f"{arm:<32} {passed}/{n:<7} {100 * esc / n:>6.1f}% "
+            f"{total_cost:>8.1f} {align:>8}"
         )
 
     unparseable = sum(1 for r in rows if r.get("detail") == "unparseable")
