@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="20">
+<title>Echo BBH n=99 - live</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#0d1117; color:#e6edf3; margin:0; padding:2rem 1rem; }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:1.15rem; font-weight:600; margin:0 0 .25rem; }
+  .sub { color:#7d8590; font-size:.8rem; margin-bottom:1.25rem; }
+  .badge { display:inline-block; padding:.15rem .55rem; border-radius:999px; font-size:.72rem; font-weight:700; letter-spacing:.04em; }
+  .running { background:#1f6feb33; color:#58a6ff; }
+  .complete { background:#23863633; color:#3fb950; }
+  .overall { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:1.1rem 1.2rem; margin-bottom:1.25rem; }
+  .big { font-size:2rem; font-weight:700; }
+  .big small { font-size:1rem; color:#7d8590; font-weight:400; }
+  .bar { height:9px; background:#21262d; border-radius:6px; overflow:hidden; margin:.6rem 0; }
+  .fill { height:100%; background:linear-gradient(90deg,#1f6feb,#3fb950); transition:width .4s; }
+  .meta { display:flex; gap:1.5rem; flex-wrap:wrap; color:#7d8590; font-size:.8rem; }
+  .meta b { color:#e6edf3; }
+  .arm { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:.7rem .9rem; margin-bottom:.6rem; }
+  .arm-head { display:flex; justify-content:space-between; align-items:center; }
+  .arm-name { font-weight:600; }
+  .arm-prog { color:#7d8590; font-size:.8rem; }
+  .arm-stats { display:flex; gap:1.1rem; flex-wrap:wrap; font-size:.78rem; color:#7d8590; margin-top:.35rem; }
+  .arm-stats b { color:#e6edf3; }
+  .warn b { color:#d29922; }
+  .foot { color:#484f58; font-size:.72rem; margin-top:1.5rem; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Echo - cheap-routing on BBH <span class="badge complete">COMPLETE</span></h1>
+  <div class="sub">n=99 tasks &middot; logical_deduction_three_objects, causal_judgement, date_understanding &middot; Claude Max (zero API spend)</div>
+
+  <div class="overall">
+    <div class="big">396<small> / 396 runs</small> &nbsp; <small>100.0%</small></div>
+    <div class="bar"><div class="fill" style="width:100.0%"></div></div>
+    <div class="meta">
+      <span>elapsed <b>3h 1m</b></span>
+      <span>eta <b>done</b></span>
+      <span>pace <b>2.2/min</b></span>
+    </div>
+  </div>
+
+  
+      <div class="arm">
+        <div class="arm-head"><span class="arm-name">haiku-only</span><span class="arm-prog">99/99</span></div>
+        <div class="bar"><div class="fill" style="width:100.0%"></div></div>
+        <div class="arm-stats">
+          <span>pass <b>83/99 (0.838)</b></span>
+          <span>esc <b>0</b></span>
+          <span>cost <b>99u</b></span>
+          <span class="">unparseable <b>0</b></span>
+        </div>
+      </div>
+      <div class="arm">
+        <div class="arm-head"><span class="arm-name">sonnet-only</span><span class="arm-prog">99/99</span></div>
+        <div class="bar"><div class="fill" style="width:100.0%"></div></div>
+        <div class="arm-stats">
+          <span>pass <b>65/99 (0.657)</b></span>
+          <span>esc <b>0</b></span>
+          <span>cost <b>297u</b></span>
+          <span class="warn">unparseable <b>20</b></span>
+        </div>
+      </div>
+      <div class="arm">
+        <div class="arm-head"><span class="arm-name">echo-judge</span><span class="arm-prog">99/99</span></div>
+        <div class="bar"><div class="fill" style="width:100.0%"></div></div>
+        <div class="arm-stats">
+          <span>pass <b>88/99 (0.889)</b></span>
+          <span>esc <b>6</b></span>
+          <span>cost <b>315u</b></span>
+          <span class="warn">unparseable <b>1</b></span>
+        </div>
+      </div>
+      <div class="arm">
+        <div class="arm-head"><span class="arm-name">echo-oracle</span><span class="arm-prog">99/99</span></div>
+        <div class="bar"><div class="fill" style="width:100.0%"></div></div>
+        <div class="arm-stats">
+          <span>pass <b>89/99 (0.899)</b></span>
+          <span>esc <b>12</b></span>
+          <span>cost <b>234u</b></span>
+          <span class="warn">unparseable <b>2</b></span>
+        </div>
+      </div>
+
+  <div class="foot">auto-refreshes every 20s &middot; streaming from the runner's JSONL &middot; updated each cycle</div>
+</div>
+</body>
+</html>
