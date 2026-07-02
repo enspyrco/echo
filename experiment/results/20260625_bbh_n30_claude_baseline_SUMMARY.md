@@ -1,5 +1,11 @@
 # BBH n=30 — Claude-baseline slice (2026-06-25)
 
+> **SUPERSEDED.** This run used the pre-fix harness (`claude --print` inherited project
+> `CLAUDE.md` + hooks). Sonnet answered as the project agent (92–125s latency, 4
+> unparseables). Use [`20260630T232105Z_bbh_n30.jsonl`](20260630T232105Z_bbh_n30.jsonl)
+> and [`20260701T000922Z_bbh_n99.jsonl`](20260701T000922Z_bbh_n99.jsonl) instead.
+> See [`README.md`](README.md#bbh--claude-baselines-clean-harness-1305).
+
 Run on `main` via the Claude Max CLI (zero API spend). Harness = the post-#3
 parser (the fix that resolved the flat-0.14 #335 artifact).
 

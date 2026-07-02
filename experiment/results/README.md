@@ -95,40 +95,79 @@ On HumanEval 100–163 there are **zero** tasks where lexical agreed but both ch
 
 ---
 
-## BBH (pending canonical sweep)
+## BBH — Claude baselines (clean harness, #1305)
 
-**Status:** Harness merged on `integrate/judge-branches`; canonical JSONL not yet committed.
+**Harness fix:** Before 2026-06-30, `claude --print` run from inside the repo inherited project `CLAUDE.md` and SessionStart hooks — models answered as the project agent, not the BBH question. That inflated Sonnet latency (40–125s), caused unparseable outputs, and confounded accuracy. Fixed by passing `--setting-sources ""` in `chat_claude_code.py` (keeps Max auth, loads no project settings).
 
-**Planned sweep:** 3 pilot subtasks × 10 tasks (n = 30), arms:
+**Invalid (pre-fix):** `20260604T011133Z_bbh_n15.jsonl`, `20260611T230804Z_bbh_n15.jsonl`, `20260625T013951Z_bbh_n30.jsonl`, `20260613T051627Z_bbh_n30.jsonl` (provider judges — needs re-run on clean harness). See [`20260625_bbh_n30_claude_baseline_SUMMARY.md`](20260625_bbh_n30_claude_baseline_SUMMARY.md) (superseded).
 
-`haiku-only`, `sonnet-only`, `echo-judge-openai`, `echo-judge-openai-gpt-5.4-mini`, `echo-judge-gemini-flash`, `echo-oracle`
+### Canonical easy slice — n = 99
 
-Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md)
-
-**Meghana pilot (n = 16, not committed):** GPT-5.5 best on pass rate + escalation; GPT-5.4-nano one bad accept; Gemini Flash-Lite competitive with Flash. Needs reproduction at n ≥ 30 on merged harness before paper claims.
-
-When the canonical JSONL lands, fill in:
+[`20260701T000922Z_bbh_n99.jsonl`](20260701T000922Z_bbh_n99.jsonl) — `logical_deduction_three_objects`, `causal_judgement`, `date_understanding` (33 each).
 
 | Arm | Pass | Escalations | Oracle alignment | Cost (units) |
 |-----|------|-------------|------------------|--------------|
-| haiku-only | — | — | — | — |
-| sonnet-only | — | — | — | — |
-| echo-judge-openai | — | — | — | — |
-| echo-judge-openai-gpt-5.4-mini | — | — | — | — |
-| echo-judge-gemini-flash | — | — | — | — |
-| echo-oracle | — | — | (ceiling) | — |
+| haiku-only | 84/99 (0.848) | 0% | — | 99 |
+| sonnet-only | 84/99 (0.848) | 0% | — | 297 |
+| echo-judge | 86/99 (0.869) | 5.1% | 87% | 278 |
+| echo-oracle | 89/99 (0.899) | 10.1% | (ceiling) | 228 |
 
-Analyze with:
+**Reads:**
+
+- Haiku and Sonnet **tie** on this slice — no accuracy gap to route on.
+- Oracle headroom comes entirely from **`causal_judgement`** (baselines 22/33, oracle 27/33) — Haiku and Sonnet miss *different* questions, so routing value is **decorrelated errors**, not “escalate to a smarter model.”
+- `echo-judge` captures most of the oracle gain (~3pts below ceiling).
+
+### Pilot re-run — n = 30 (same subtasks)
+
+[`20260630T232105Z_bbh_n30.jsonl`](20260630T232105Z_bbh_n30.jsonl) — 10 per subtask, Claude baselines only. Zero unparseables.
+
+| Arm | Pass | Escalations | Oracle alignment | Cost (units) |
+|-----|------|-------------|------------------|--------------|
+| haiku-only | 26/30 | 0% | — | 30 |
+| sonnet-only | 27/30 | 0% | — | 90 |
+| echo-judge | 26/30 | 6.7% | 83% | 85.7 |
+| echo-oracle | 28/30 | 10.0% | (ceiling) | 69 |
+
+### Hard subtasks — n = 99 (saturated)
+
+[`20260701T050041Z_bbh_n99.jsonl`](20260701T050041Z_bbh_n99.jsonl) — `logical_deduction_seven_objects`, `tracking_shuffled_objects_seven_objects`, `temporal_sequences` (33 each).
+
+| Arm | Pass | Escalations | Cost (units) |
+|-----|------|-------------|--------------|
+| haiku-only | 99/99 | 0% | 99 |
+| sonnet-only | 99/99 | 0% | 297 |
+| echo-judge | 98/99 | 0% | 263 |
+| echo-oracle | 99/99 | 0% | 198 |
+
+MCQ BBH is **saturated** for current Claude on these subtasks — no Sonnet-vs-Haiku separation, no meaningful judge headroom. Forward paths: free-form BBH subtasks, MMLU-Pro/GPQA, or reframe Echo as cost/latency routing (“route cheap, lose nothing”).
+
+### Provider judges (pre-fix — pending re-run)
+
+[`20260613T051627Z_bbh_n30.jsonl`](20260613T051627Z_bbh_n30.jsonl) — same 3 subtasks × 10, pre-fix harness. Directional only; Meghana to re-run after clean harness lands on `main`.
+
+| Arm | Pass | Escalations | Oracle alignment | Cost (units) |
+|-----|------|-------------|------------------|--------------|
+| echo-judge-openai (GPT-5.5) | 27/30 | 10.0% | 80% | 167.8 |
+| echo-judge-openai-gpt-5.4-mini | 25/30 | 3.3% | 87% | 77.8 |
+| echo-judge-gemini-flash | 17/30 | 3.3% | 87% | 69.0 |
+| echo-oracle | 28/30 | 10.0% | (ceiling) | 69.0 |
+
+**Smoke test (wiring only):** [`20260611T133324Z_bbh_n16.jsonl`](20260611T133324Z_bbh_n16.jsonl) — `logical_deduction_three_objects` only, 16/16 pass everywhere, 0% escalation. Too easy for quality claims.
+
+Analyze any BBH sweep:
 
 ```bash
 python scripts/analyze_sweep.py results/<timestamp>_bbh_n30.jsonl
 ```
 
+Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md). Resumable sweeps: `scripts/run_bbh_resumable.sh`.
+
 ---
 
 ## Open work
 
-- **BBH canonical sweep** — Nick to run on server; Adarsha to analyze and update this file.
+- **BBH provider-judge re-run** — Meghana, clean harness + OpenAI/Gemini keys on server.
 - **MMLU-Pro** — breadth / domain coverage after BBH.
 - **Semantic persona axes** — e.g. edge-case-hunter vs happy-path-implementer (current personas are stylistic).
 - **Harness** — reproducible sweep metadata, cost in JSONL, `analyze_sweep.py`, resume, BBH adapter (see [`../README.md`](../README.md)).

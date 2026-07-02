@@ -165,9 +165,11 @@ jq -s 'group_by(.arm) | map({arm: .[0].arm, n: length, passed: (map(select(.pass
 | Ollama connection errors | Start Ollama; `ollama pull qwen2.5:7b-instruct-q4_K_M`; check `SMALL_JUDGE_BASE_URL` in `run_pilot.py` |
 | Very slow runs | Expected — each call spawns `claude --print` (~seconds overhead per call) |
 
-## BBH (ready for Nick to run)
+## BBH
 
-Big-Bench Hard loader, scoring, and BBH-specific Echo arms — **no Claude needed** for local tests.
+Big-Bench Hard loader, scoring, and BBH-specific Echo arms — **no Claude needed** for local tests. Model sweeps require the Claude Code CLI on a machine with Max auth.
+
+**Harness note:** `chat_claude_code.py` passes `--setting-sources ""` so `claude --print` does not inherit project `CLAUDE.md` or hooks (see #1305). Without this, BBH accuracy numbers are invalid.
 
 ```bash
 cd experiment
@@ -193,9 +195,14 @@ python scripts/analyze_sweep.py results/20260519T085620Z_n64.jsonl
 python scripts/run_bbh_pilot.py \
   --subtasks logical_deduction_three_objects,causal_judgement,date_understanding \
   --n-per-subtask 5
+
+# Long sweeps (auto-resume on usage window)
+./scripts/run_bbh_resumable.sh
 ```
 
-Files: `benchmarks/bbh.py`, `benchmarks/bbh_arms.py`, `scripts/inspect_bbh.py`, `scripts/run_bbh_pilot.py`, `scripts/analyze_sweep.py`.
+Canonical results and interpretation: [`results/README.md`](results/README.md#bbh--claude-baselines-clean-harness-1305).
+
+Files: `benchmarks/bbh.py`, `benchmarks/bbh_arms.py`, `scripts/inspect_bbh.py`, `scripts/run_bbh_pilot.py`, `scripts/analyze_sweep.py`, `scripts/run_bbh_resumable.sh`.
 
 Pilot subtasks: `logical_deduction_three_objects`, `causal_judgement`, `date_understanding` (confirm with team).
 
