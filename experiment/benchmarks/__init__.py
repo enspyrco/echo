@@ -9,5 +9,4 @@ __all__ = [
     "load_mmlu_pro",
     "score_bbh",
     "score_mmlu_pro",
-    "bbh_arms",
 ]

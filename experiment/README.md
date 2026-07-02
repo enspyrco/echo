@@ -39,7 +39,7 @@ cd experiment
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4" "langchain-openai>=0.3" "langchain-google-genai>=2.0"
+pip install "langchain-core>=0.3,<0.4" "langchain>=0.3,<0.4" "langchain-ollama>=0.2,<0.4" "langchain-openai>=0.3" "langchain-google-genai>=2.0" "datasets>=2.14"
 ```
 
 ## Quick start (1 task)
@@ -164,6 +164,7 @@ jq -s 'group_by(.arm) | map({arm: .[0].arm, n: length, passed: (map(select(.pass
 | `echo-judge-gemini requires langchain-google-genai` | `pip install "langchain-google-genai>=2.0"` and set `GOOGLE_API_KEY` |
 | Ollama connection errors | Start Ollama; `ollama pull qwen2.5:7b-instruct-q4_K_M`; check `SMALL_JUDGE_BASE_URL` in `run_pilot.py` |
 | Very slow runs | Expected — each call spawns `claude --print` (~seconds overhead per call) |
+| Sonnet 90–125s / unparseable BBH outputs | Pre-fix harness bug (#1305). Pull `feat/mmlu-pro-harness` or later; needs `--setting-sources ""` |
 
 ## BBH
 
@@ -179,8 +180,8 @@ pip install "datasets>=2.14"
 # Pre-flight (tests + arm wiring; no model calls)
 python scripts/validate_harness.py
 
-# Unit tests
-python -m unittest tests.test_bbh_scoring tests.test_bbh_arms -v
+# Unit tests (41 tests, no model calls)
+python -m unittest discover tests -v
 
 # Print sample tasks
 python scripts/inspect_bbh.py --n 1
@@ -204,7 +205,7 @@ Canonical results and interpretation: [`results/README.md`](results/README.md#bb
 
 Files: `benchmarks/bbh.py`, `benchmarks/bbh_arms.py`, `scripts/inspect_bbh.py`, `scripts/run_bbh_pilot.py`, `scripts/analyze_sweep.py`, `scripts/run_bbh_resumable.sh`.
 
-Pilot subtasks: `logical_deduction_three_objects`, `causal_judgement`, `date_understanding` (confirm with team).
+Pilot subtasks: `logical_deduction_three_objects`, `causal_judgement`, `date_understanding`. MCQ BBH is near-ceiling for current Claude — see results README.
 
 ## MMLU-Pro
 
@@ -236,7 +237,7 @@ python scripts/run_mmlu_pro_pilot.py \
 
 Pilot categories: `physics`, `math`, `law`, `chemistry`, `philosophy`. Data: [`TIGER-Lab/MMLU-Pro`](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro) (`test` split).
 
-Files: `benchmarks/mmlu_pro.py`, `scripts/inspect_mmlu_pro.py`, `scripts/run_mmlu_pro_pilot.py`.
+Files: `benchmarks/mmlu_pro.py`, `scripts/inspect_mmlu_pro.py`, `scripts/run_mmlu_pro_pilot.py`, `scripts/run_mmlu_pro_resumable.sh`.
 
 ## Layout
 

@@ -165,13 +165,30 @@ Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md). Resumable s
 
 ---
 
+## MMLU-Pro (pending canonical sweep)
+
+**Status:** Harness on `feat/mmlu-pro-harness` (loader, pilot runner, resumable wrapper, unit tests). No canonical JSONL committed yet.
+
+**Planned sweep:** 5 categories × 25 questions (n = 125):
+
+`physics`, `math`, `law`, `chemistry`, `philosophy`
+
+**Arms (phase 1):** `haiku-only`, `sonnet-only`, `echo-judge`, `echo-oracle`
+
+Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md)
+
+```bash
+python scripts/analyze_sweep.py results/<timestamp>_mmlu_pro_n125.jsonl
+```
+
+---
+
 ## Open work
 
-- **MMLU-Pro canonical sweep** — Nick to run n=125 Claude baselines; Adarsha to analyze.
+- **MMLU-Pro canonical sweep** — Nick, n=125 Claude baselines on OCI (`feat/mmlu-pro-harness`).
+- **Merge to `main`** — `feat/mmlu-pro-harness` (BBH harness fix, clean n=99 JSONLs, MMLU-Pro harness).
 - **BBH provider-judge re-run** — Meghana, clean harness + OpenAI/Gemini keys on server.
-- **MMLU-Pro** — breadth / domain coverage (harness ready; no canonical JSONL yet).
 - **Semantic persona axes** — e.g. edge-case-hunter vs happy-path-implementer (current personas are stylistic).
-- **Harness** — reproducible sweep metadata, cost in JSONL, `analyze_sweep.py`, resume, BBH adapter (see [`../README.md`](../README.md)).
 
 ---
 

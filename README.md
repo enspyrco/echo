@@ -41,12 +41,10 @@ Echo proposes a simpler primitive. Call the cheap model twice with two different
 
 - **Compute:** OCI free-tier ARM (158.179.17.233, host `nick-mel`), behind Caddy. The harness is I/O-bound (API calls), so ARM is fine.
 - **Public replication endpoint:** plan to expose a subset of experiments at a public URL so reviewers can re-run live. This is rare in ML papers and tends to build trust.
-- **Repo layout (planned):**
-  - `harness/` Python orchestrator that runs routing arms against benchmarks
-  - `personas/` the prompt-perturbation pairs we test
-  - `benchmarks/` dataset adapters
-  - `results/` JSONL logs of every API call, replayable
-  - `paper/` LaTeX source
+- **Repo layout:**
+  - `experiment/` Python harness — runners, benchmark adapters, JSONL results
+  - `blog/` public write-up
+  - `paper/` LaTeX source (planned)
 
 ## Honest risks
 
@@ -60,19 +58,22 @@ See [COLLABORATORS.md](COLLABORATORS.md). Roles still to be assigned; the immedi
 
 ## Status
 
-**HumanEval hard slice (tasks 100–163, n=64) is complete** through sweep 4, including `echo-small-judge`. Headline: local cross-family judge (Qwen 7B) reaches ~94% oracle alignment at ~137 cost units vs sonnet-only ~192, with pass rates statistically equal on this slice.
+**HumanEval (n=64, tasks 100–163)** — complete. `echo-small-judge` (local Qwen 7B) reaches ~94% oracle alignment at ~137 cost units vs sonnet-only ~192, with pass rates equal on this slice.
+
+**BBH (n=99, clean harness #1305)** — Claude baselines complete on branch `feat/mmlu-pro-harness` (pending merge to `main`). Haiku and Sonnet tie at 84/99; echo-oracle reaches 89/99 via decorrelated errors on `causal_judgement`. MCQ BBH is saturated for current Claude — harder subtasks also hit ceiling.
+
+**MMLU-Pro** — harness ready (`feat/mmlu-pro-harness`); canonical n=125 sweep pending on OCI server.
 
 - **Run locally:** [`experiment/README.md`](experiment/README.md)
 - **Results & sweep history:** [`experiment/results/README.md`](experiment/results/README.md)
+- **Server runbook:** [`experiment/scripts/RUN_FOR_NICK.md`](experiment/scripts/RUN_FOR_NICK.md)
 - **Blog:** [enspyr.co/blog/echo-cheap-routing-without-a-router](https://enspyr.co/blog/echo-cheap-routing-without-a-router)
-
-**BBH:** Judge branches merged on `integrate/judge-branches` (OpenAI/Gemini judge arms, Yes/No scoring fixes, 25 unit tests). Canonical n=30 server sweep pending — see [`experiment/scripts/RUN_FOR_NICK.md`](experiment/scripts/RUN_FOR_NICK.md).
 
 **Next steps:**
 
-1. Merge `integrate/judge-branches` → run canonical BBH sweep on OCI
-2. Pareto analysis + update `experiment/results/README.md`
-3. MMLU-Pro after BBH
+1. Merge `feat/mmlu-pro-harness` → `main`
+2. Nick runs MMLU-Pro n=125 Claude baselines on OCI
+3. Meghana re-runs BBH provider-judge n=30 on clean harness
 4. Paper draft / venue
 
 ## Background reading

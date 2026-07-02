@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-flight checks before a BBH sweep — no model API calls."""
+"""Pre-flight checks before a sweep — no model API calls."""
 
 from __future__ import annotations
 
