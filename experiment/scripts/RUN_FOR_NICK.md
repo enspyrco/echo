@@ -116,6 +116,53 @@ python scripts/run_bbh_pilot.py \
 
 ---
 
+## MMLU-Pro canonical sweep (next — run when Adarsha asks)
+
+**Goal:** First reasoning benchmark where Haiku and Sonnet may diverge. n = 125 (5 categories × 25).
+
+**Arms:** Claude baselines first; add provider judges after clean n=125 lands.
+
+```bash
+python scripts/run_mmlu_pro_pilot.py \
+  --categories physics,math,law,chemistry,philosophy \
+  --n-per-category 25 \
+  --arms haiku-only,sonnet-only,echo-judge,echo-oracle
+```
+
+**Expected:** 125 tasks × 4 arms = **500 runs** (mostly Haiku; echo-judge adds Haiku judge calls).
+
+**Unattended (auto-resume on usage window):**
+
+```bash
+./scripts/run_mmlu_pro_resumable.sh \
+  --categories physics,math,law,chemistry,philosophy \
+  --n-per-category 25 \
+  --arms haiku-only,sonnet-only,echo-judge,echo-oracle
+```
+
+**Analyze:**
+
+```bash
+python scripts/analyze_sweep.py results/<timestamp>_mmlu_pro_n125.jsonl
+```
+
+**Sanity checks:**
+
+| Check | Healthy signal |
+|-------|----------------|
+| `sonnet-only` vs `haiku-only` | Sonnet ≥ Haiku (if tied, slice may still be easy) |
+| `echo-oracle` vs baselines | Oracle pass rate above both |
+| `echo-judge` escalation | > 0% on harder domains |
+| `unparseable` count | 0 |
+
+**Smoke test (25 tasks, ~1h):**
+
+```bash
+python scripts/run_mmlu_pro_pilot.py --n-per-category 5
+```
+
+---
+
 ## Notes
 
 - BBH uses `benchmarks/bbh_arms.py` (MCQ personas + gold-label oracle).

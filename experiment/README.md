@@ -206,6 +206,38 @@ Files: `benchmarks/bbh.py`, `benchmarks/bbh_arms.py`, `scripts/inspect_bbh.py`, 
 
 Pilot subtasks: `logical_deduction_three_objects`, `causal_judgement`, `date_understanding` (confirm with team).
 
+## MMLU-Pro
+
+Multiple-choice reasoning benchmark (14 domains, up to 10 options per question). Reuses the same MCQ Echo arms as BBH.
+
+```bash
+# Pre-flight + unit tests (includes MMLU-Pro loader)
+python scripts/validate_harness.py
+python -m unittest tests.test_mmlu_pro_scoring -v
+
+# Inspect tasks (downloads HF dataset on first run)
+python scripts/inspect_mmlu_pro.py --n 1
+
+# Pilot sweep: 5 categories × 5 questions = 25 tasks (default arms)
+python scripts/run_mmlu_pro_pilot.py --n-per-category 5
+
+# Canonical first run (match BBH scale): 5 × 25 = 125 tasks
+python scripts/run_mmlu_pro_pilot.py \
+  --categories physics,math,law,chemistry,philosophy \
+  --n-per-category 25 \
+  --arms haiku-only,sonnet-only,echo-judge,echo-oracle
+
+# Long sweeps (auto-resume on usage window)
+./scripts/run_mmlu_pro_resumable.sh \
+  --categories physics,math,law,chemistry,philosophy \
+  --n-per-category 25 \
+  --arms haiku-only,sonnet-only,echo-judge,echo-oracle
+```
+
+Pilot categories: `physics`, `math`, `law`, `chemistry`, `philosophy`. Data: [`TIGER-Lab/MMLU-Pro`](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro) (`test` split).
+
+Files: `benchmarks/mmlu_pro.py`, `scripts/inspect_mmlu_pro.py`, `scripts/run_mmlu_pro_pilot.py`.
+
 ## Layout
 
 ```
@@ -214,8 +246,9 @@ experiment/
   dataset.py            # HumanEval loader
   benchmarks/bbh.py     # BBH loader + scoring
   benchmarks/bbh_arms.py # BBH Echo arms (MCQ personas + oracle)
-  scripts/              # inspect_bbh, run_bbh_pilot, analyze_sweep, RUN_FOR_NICK
-  tests/                # test_bbh_scoring, test_bbh_arms
+  benchmarks/mmlu_pro.py # MMLU-Pro loader + scoring
+  scripts/              # inspect/run pilots, analyze_sweep, RUN_FOR_NICK
+  tests/                # test_bbh_*, test_mmlu_pro_scoring
   chat_claude_code.py   # LangChain wrapper around `claude --print`
   results/              # JSONL sweep logs (committed)
   pyproject.toml

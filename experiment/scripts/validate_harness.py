@@ -55,6 +55,7 @@ def main() -> int:
     try:
         from benchmarks.bbh import PILOT_SUBTASKS, load_bbh  # noqa: F401
         from benchmarks.bbh_arms import BBH_ARMS  # noqa: F401
+        from benchmarks.mmlu_pro import PILOT_CATEGORIES, load_mmlu_pro  # noqa: F401
         ok &= check("benchmark modules", True)
     except Exception as exc:
         ok &= check("benchmark modules", False, str(exc))
@@ -76,6 +77,17 @@ def main() -> int:
         check("datasets package", False, "pip install datasets>=2.14", required=False)
     except Exception as exc:
         ok &= check("load 1 BBH task", False, str(exc))
+
+    print("\nMMLU-Pro loader (no API)")
+    try:
+        from benchmarks.mmlu_pro import load_mmlu_pro
+
+        tasks = load_mmlu_pro(["physics"], n_per_category=1)
+        ok &= check("load 1 MMLU-Pro task", len(tasks) == 1, tasks[0]["task_id"] if tasks else "")
+    except ImportError:
+        check("datasets package", False, "pip install datasets>=2.14", required=False)
+    except Exception as exc:
+        ok &= check("load 1 MMLU-Pro task", False, str(exc))
 
     print("\nUnit tests")
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))

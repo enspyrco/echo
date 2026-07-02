@@ -167,8 +167,9 @@ Runbook: [`../scripts/RUN_FOR_NICK.md`](../scripts/RUN_FOR_NICK.md). Resumable s
 
 ## Open work
 
+- **MMLU-Pro canonical sweep** — Nick to run n=125 Claude baselines; Adarsha to analyze.
 - **BBH provider-judge re-run** — Meghana, clean harness + OpenAI/Gemini keys on server.
-- **MMLU-Pro** — breadth / domain coverage after BBH.
+- **MMLU-Pro** — breadth / domain coverage (harness ready; no canonical JSONL yet).
 - **Semantic persona axes** — e.g. edge-case-hunter vs happy-path-implementer (current personas are stylistic).
 - **Harness** — reproducible sweep metadata, cost in JSONL, `analyze_sweep.py`, resume, BBH adapter (see [`../README.md`](../README.md)).
 
